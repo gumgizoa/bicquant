@@ -150,6 +150,15 @@ sudo chown ubuntu:ubuntu /app
 git clone git@github.com:<github-username>/bicquant.git /app
 ```
 
+> **Important**: `git clone` via SSH may still set the remote URL to HTTPS internally. Verify and fix after cloning:
+> ```bash
+> cd /app
+> git remote -v  # check current URL
+> git remote set-url origin git@github.com:<github-username>/bicquant.git
+> git pull origin main  # verify SSH pull works
+> ```
+> Without this, GitHub Actions deployment (`git pull`) will fail with "could not read Username for 'https://github.com'".
+
 ---
 
 ## 5. GitHub Actions Deploy Key (GitHub → EC2)
