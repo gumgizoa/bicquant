@@ -1,13 +1,12 @@
 import logging
 import os
 
-from langchain_anthropic import ChatAnthropic
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 logging.basicConfig(level=logging.INFO)
 
-llm = ChatAnthropic(model="claude-sonnet-4-6")
+# llm = ChatAnthropic(model="claude-sonnet-4-6")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -26,7 +25,7 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # response = llm.invoke([HumanMessage(content=user_input)])
     response = "LLM 답변으로 대체될 예정입니다. 테스트 중..."
-    await update.message.reply_text(response.content)
+    await update.message.reply_text(response)
 
 
 def main() -> None:
