@@ -373,3 +373,6 @@ mecab
 .DS_Store@SynoResource
 
 # End of https://www.toptal.com/developers/gitignore/api/react,node,gatsby,python,visualstudiocode,jupyternotebooks
+
+# Local only
+archive/
