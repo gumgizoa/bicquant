@@ -1,0 +1,10 @@
+pandas
+numpy
+matplotlib
+fredapi
+hmmlearn
+yfinance
+statsmodels
+seaborn
+openpyxl
+paramiko
