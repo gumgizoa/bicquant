@@ -2,7 +2,6 @@ import logging
 import os
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -22,10 +21,11 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("사용법: /ask {질문}")
         return
 
-    user_input = " ".join(context.args)
+    # user_input = " ".join(context.args)
     await update.message.reply_text("생각 중...")
 
-    response = llm.invoke([HumanMessage(content=user_input)])
+    # response = llm.invoke([HumanMessage(content=user_input)])
+    response = "LLM 답변으로 대체될 예정입니다. 테스트 중..."
     await update.message.reply_text(response.content)
 
 
