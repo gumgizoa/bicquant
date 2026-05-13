@@ -37,7 +37,7 @@ main          ← production (auto-deploys to EC2 on merge)
 
 | Tool | Version | Install |
 |------|---------|---------|
-| Python | 3.12 | `conda create -n bicquant python=3.12` |
+| Python | 3.12 | `python3.12 -m venv .venv` |
 | Node.js | ≥ 20 | via Homebrew |
 | Docker Desktop | latest | https://docs.docker.com/desktop/mac/ |
 
@@ -52,7 +52,7 @@ cd bicquant
 git checkout develop
 
 # 3. Backend dependencies
-conda activate bicquant
+source .venv/bin/activate
 pip install -r backend/requirements.txt
 pip install -r backend/requirements-dev.txt
 
@@ -88,7 +88,7 @@ FRED_API_KEY=
 
 ```bash
 # Backend (API server)
-conda activate bicquant
+source .venv/bin/activate
 uvicorn app.main:app --reload --app-dir backend
 
 # Frontend (dev server with HMR)

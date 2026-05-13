@@ -4,7 +4,7 @@ LS증권 HTS "투혼"의 [1892] (KRX)조건검색 화면에서, 과거 360일치
 ## 기본 유저 프로파일
 - Mac 환경에서 Parallels Desktop (스탠다드 에디션)으로 Windows 11 VM 운용
 - Windows VM에서 LS증권 HTS "투혼" 실행 중
-- Python 개발 환경: Mac에 `bicquant` conda 환경, VM에도 동일 경로에 venv 존재
+- Python 개발 환경: Mac에 `.venv` 가상환경, VM에도 동일 경로에 venv 존재
 - VM 접속: SSH (paramiko), IP는 prlctl로 동적으로 가져옴
 - Parallels 스탠다드 에디션 → `prlctl exec` 명령 사용 불가
 
@@ -77,9 +77,9 @@ bridge.py      = C:\Users\cho-eungi\eungizoa\bicquant\parallels\src\bridge.py
    ```
 2. Mac에서:
    ```bash
-   conda run -n bicquant python parallels/src/crawl_tuhon_hts.py             # 테스트 ('360일 전' 1일 테스트)
-   conda run -n bicquant python parallels/src/crawl_tuhon_hts.py --all       # 전체 실행
-   conda run -n bicquant python parallels/src/crawl_tuhon_hts.py --diagnose  # 디버그
+   ./.venv/bin/python parallels/src/crawl_tuhon_hts.py             # 테스트 ('360일 전' 1일 테스트)
+   ./.venv/bin/python parallels/src/crawl_tuhon_hts.py --all       # 전체 실행
+   ./.venv/bin/python parallels/src/crawl_tuhon_hts.py --diagnose  # 디버그
    ```
 
 ## SSH 연결 정보
