@@ -15,20 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - run: pip install ruff==0.11.2
-      - run: ruff check backend/
-      - run: ruff format --check backend/
+          enable-cache: true
+      - run: uv run ruff check backend/ lsapi/
+      - run: uv run ruff format --check backend/ lsapi/
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - run: pip install -r backend/requirements.txt
-      - run: pip install -r backend/requirements-dev.txt
-      - run: pytest
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run pytest

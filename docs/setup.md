@@ -317,7 +317,9 @@ services:
       - backend
 
   backend:
-    build: ./backend         # FastAPI — REST API
+    build:
+      context: .             # workspace root (lsapi + backend)
+      dockerfile: backend/Dockerfile
     env_file: .env
     expose:
       - "8000"
@@ -333,8 +335,10 @@ services:
       - "5432"
 
   telegram-bot:
-    build: ./backend
-    command: python -m bot.main   # runs the Telegram bot process
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: uv run python -m bot.main   # runs the Telegram bot process
     env_file: .env
     depends_on:
       - postgres
@@ -377,11 +381,28 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 ### Backend Dockerfile
 
+Build context is the **workspace root** (not `backend/`) so both `backend/` and `lsapi/` are accessible.
+
 ```dockerfile
 FROM python:3.12-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /workspace
+
+# Copy workspace manifests first (layer caching)
+COPY pyproject.toml uv.lock* ./
+COPY backend/pyproject.toml ./backend/
+COPY lsapi/pyproject.toml ./lsapi/
+
+# Install production deps only
+RUN uv sync --frozen --no-dev
+
+# Copy source
+COPY backend/ ./backend/
+COPY lsapi/ ./lsapi/
+
+WORKDIR /workspace/backend
+
+CMD ["uv", "run", "gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
 ```

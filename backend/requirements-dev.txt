@@ -1,4 +1,0 @@
-ruff==0.11.2
-pytest
-pytest-asyncio
-pre-commit

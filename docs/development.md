@@ -37,7 +37,8 @@ main          ← production (auto-deploys to EC2 on merge)
 
 | Tool | Version | Install |
 |------|---------|---------|
-| Python | 3.12 | `python3.12 -m venv .venv` |
+| Python | 3.12 | managed by uv automatically |
+| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Node.js | ≥ 20 | via Homebrew |
 | Docker Desktop | latest | https://docs.docker.com/desktop/mac/ |
 
@@ -51,21 +52,44 @@ cd bicquant
 # 2. Checkout develop
 git checkout develop
 
-# 3. Backend dependencies
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-pip install -r backend/requirements-dev.txt
+# 3. Install all Python dependencies (backend + lsapi)
+uv sync --all-packages
 
 # 4. Frontend dependencies
 cd frontend && npm install && cd ..
 
 # 5. Pre-commit hooks
-pre-commit install
+uv run pre-commit install
 
 # 6. Environment variables
 cp .env.example .env
 # Fill in actual values in .env
 ```
+
+### Workspace Structure
+
+This project uses a **uv workspace** — a single virtual environment (`.venv`) shared across all Python packages:
+
+```
+bicquant/               ← workspace root
+├── pyproject.toml      ← workspace config + ruff/pytest settings
+├── uv.lock             ← exact dependency versions (commit this)
+├── backend/
+│   └── pyproject.toml  ← bicquant-backend package (depends on lsapi)
+└── lsapi/
+    ├── pyproject.toml  ← lsapi package
+    └── src/lsapi/      ← LS Securities OpenAPI client
+```
+
+Key uv commands:
+
+| Task | Command |
+|------|---------|
+| Install everything | `uv sync --all-packages` |
+| Add a package to lsapi | `uv add <pkg> --package lsapi` |
+| Add a package to backend | `uv add <pkg> --package bicquant-backend` |
+| Add a dev dependency | `uv add <pkg> --dev --package <name>` |
+| Run a command in venv | `uv run <command>` |
 
 ### Environment Variables
 
@@ -88,8 +112,7 @@ FRED_API_KEY=
 
 ```bash
 # Backend (API server)
-source .venv/bin/activate
-uvicorn app.main:app --reload --app-dir backend
+uv run uvicorn app.main:app --reload --app-dir backend
 
 # Frontend (dev server with HMR)
 cd frontend && npm run dev
@@ -113,7 +136,7 @@ git checkout -b feature/<name>
 # 3. Work, commit
 git add <files>
 git commit -m "[feat] description"
-# pre-commit runs ruff automatically on commit
+# pre-commit runs ruff + pytest automatically
 
 # 4. Push → triggers CI
 git push origin feature/<name>
@@ -125,14 +148,28 @@ git push origin feature/<name>
 # Merging to main triggers auto-deploy to EC2
 ```
 
+### Adding a new dependency
+
+```bash
+# To lsapi (LS Securities client library)
+uv add httpx --package lsapi
+
+# To backend
+uv add sqlalchemy --package bicquant-backend
+
+# uv.lock is updated automatically — commit it along with pyproject.toml
+git add uv.lock lsapi/pyproject.toml
+git commit -m "[add] httpx to lsapi"
+```
+
 ### Commit Message Convention
 
 ```
-[feat]   new feature
-[fix]    bug fix
-[add]    add file / resource (non-code)
+[feat]     new feature
+[fix]      bug fix
+[add]      add file / resource (non-code)
 [refactor] code restructure without behavior change
-[docs]   documentation only
+[docs]     documentation only
 ```
 
 ---
@@ -150,20 +187,21 @@ git push origin feature/<name>
 
 **lint** — Python code style check
 ```bash
-ruff check backend/
-ruff format --check backend/
+uv run ruff check backend/ lsapi/
+uv run ruff format --check backend/ lsapi/
 ```
 
 **test** — Run test suite
 ```bash
-pytest
+uv sync --frozen
+uv run pytest
 ```
 
 ### Local Pre-commit Hooks
 
-The same checks run locally before every push (via `.pre-commit-config.yaml`):
+The same checks run locally before every commit/push (via `.pre-commit-config.yaml`):
 
 - `ruff check` + `ruff format` on commit
-- `pytest` on push
+- `pytest` on push (via `uv run pytest`)
 
 CI is a server-side safety net that catches anything that slipped past pre-commit.

@@ -1,10 +1,21 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR /workspace
 
-COPY . .
+# Copy workspace manifests (layer-cached)
+COPY pyproject.toml uv.lock* ./
+COPY backend/pyproject.toml ./backend/
+COPY lsapi/pyproject.toml ./lsapi/
 
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+# Install production deps only
+RUN uv sync --frozen --no-dev
+
+# Copy source
+COPY backend/ ./backend/
+COPY lsapi/ ./lsapi/
+
+WORKDIR /workspace/backend
+
+CMD ["uv", "run", "gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]

@@ -6,7 +6,7 @@
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python package manager
-- [Node.js](https://nodejs.org/) v18+
+- [Node.js](https://nodejs.org/) v20+
 
 ### 1. Clone the repository
 
@@ -30,13 +30,13 @@ POSTGRES_PASSWORD=postgres
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/bicquant
 ```
 
-### 3. Set up Python virtual environment
+### 3. Install Python dependencies
 
 ```bash
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install -r backend/requirements.txt
+uv sync --all-packages
 ```
+
+This installs all workspace packages (`backend`, `lsapi`) and their dependencies into `.venv`.
 
 ### 4. Run services
 
@@ -49,9 +49,7 @@ docker compose -f docker-compose.dev.yml up
 **Terminal 2 — Backend**
 
 ```bash
-source .venv/bin/activate
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0 --port 8000
 ```
 
 **Terminal 3 — Frontend**
