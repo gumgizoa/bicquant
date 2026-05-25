@@ -34,5 +34,15 @@ services:
       - postgres
     restart: unless-stopped
 
+  monitor:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: uv run python -m monitor.main
+    env_file: .env
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
 volumes:
   postgres_data:

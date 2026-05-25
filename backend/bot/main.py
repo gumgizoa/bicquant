@@ -39,8 +39,12 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     user_input = " ".join(context.args)
-    response = llm.invoke([HumanMessage(content=user_input)])
-    await update.message.reply_text(response.content)
+    try:
+        response = llm.invoke([HumanMessage(content=user_input)])
+        await update.message.reply_text(response.content)
+    except Exception as e:
+        logging.error(f"[ask] LLM error: {e}")
+        await update.message.reply_text(f"Error while invoking LLM: {e}")
 
 
 async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -86,13 +90,23 @@ async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Failed to fetch data for '{ticker_symbol}'.")
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from telegram.error import Conflict
+
+    if isinstance(context.error, Conflict):
+        logging.warning("Conflict: another bot instance is running. Retrying...")
+        return
+    logging.error("Unhandled exception", exc_info=context.error)
+
+
 def main() -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     app = ApplicationBuilder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ask", ask))
     app.add_handler(CommandHandler("stock", stock))
-    app.run_polling()
+    app.add_error_handler(error_handler)
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":

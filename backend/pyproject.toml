@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv",
     "python-telegram-bot>=20.0",
     "psycopg2-binary",
+    "asyncpg",
     "langchain",
     "langchain-anthropic",
     "langchain-openai",

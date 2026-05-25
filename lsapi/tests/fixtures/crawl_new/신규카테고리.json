@@ -1,0 +1,20 @@
+{
+  "category": "신규카테고리",
+  "scraped_at": "20260515_000000",
+  "apis": [
+    {
+      "name": "[신규] 조회",
+      "category": "신규카테고리",
+      "basic": {
+        "method": "POST",
+        "url": "/new/query",
+        "domain_prod": "https://openapi.ls-sec.co.kr:8080",
+        "domain_mock": null,
+        "format": "JSON",
+        "content_type": "application/json; charset=UTF-8",
+        "description": "신규 카테고리 조회 API"
+      },
+      "trs": []
+    }
+  ]
+}

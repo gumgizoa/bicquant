@@ -12,7 +12,7 @@ select = ["E", "W", "F", "I"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "lsapi/tests"]
+testpaths = ["tests", "lsapi/tests", "backend/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
