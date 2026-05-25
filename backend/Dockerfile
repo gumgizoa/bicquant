@@ -8,6 +8,7 @@ WORKDIR /workspace
 COPY pyproject.toml uv.lock* ./
 COPY backend/pyproject.toml ./backend/
 COPY lsapi/pyproject.toml ./lsapi/
+COPY lsapi/src/ ./lsapi/src/
 
 # Install production deps only
 RUN uv sync --frozen --no-dev
