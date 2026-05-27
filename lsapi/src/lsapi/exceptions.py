@@ -8,3 +8,7 @@ class AuthError(LSApiError):
 
 class RateLimitError(LSApiError):
     pass
+
+
+class LSSpecError(LSApiError):
+    pass

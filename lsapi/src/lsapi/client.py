@@ -1,11 +1,37 @@
 """LS Securities OpenAPI REST client."""
 
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from pathlib import Path
+
 import httpx
 
 from lsapi.auth import TokenManager
+from lsapi.catalog import Catalog, TRSpec, default_catalog
 from lsapi.exceptions import LSApiError
 
 _BASE_URL = "https://openapi.ls-sec.co.kr:8080"
+
+
+@dataclass
+class TRResponse:
+    tr_cd: str
+    rsp_cd: str
+    rsp_msg: str
+    body: dict  # 서버 응답 전체 (OutBlock 포함)
+    has_next: bool  # tr_cont == "Y"
+    cont_key: str  # 다음 요청의 tr_cont_key
+
+    @property
+    def ok(self) -> bool:
+        """rsp_cd가 성공을 나타내면 True."""
+        return self.rsp_cd in ("00000", "0", "")
+
+    def block(self, name: str) -> list | dict | None:
+        """OutBlock 이름으로 안전하게 접근. 없으면 None 반환."""
+        return self.body.get(name)
 
 
 class LSClient:
@@ -13,12 +39,28 @@ class LSClient:
 
     Usage:
         async with LSClient(app_key, app_secret) as client:
-            result = await client.request("t1101", {"shcode": "005930"})
+            resp = await client.call("t1101", shcode="005930")
+            print(resp.block("t1101OutBlock")["price"])
+
+    token cache:
+        async with LSClient(app_key, app_secret, cache_dir=Path("~/.lsapi").expanduser()) as client:
+            ...
     """
 
-    def __init__(self, app_key: str, app_secret: str) -> None:
-        self._tokens = TokenManager(app_key, app_secret)
+    def __init__(
+        self,
+        app_key: str,
+        app_secret: str,
+        *,
+        catalog: Catalog | None = None,
+        mac_address: str = "",
+        cache_dir: str | Path | None = None,
+    ) -> None:
+        _cache = Path(cache_dir).expanduser() if cache_dir else None
+        self._tokens = TokenManager(app_key, app_secret, cache_dir=_cache)
         self._http = httpx.AsyncClient(base_url=_BASE_URL, timeout=30.0)
+        self._catalog = catalog or default_catalog()
+        self._mac = mac_address
 
     async def __aenter__(self) -> "LSClient":
         return self
@@ -26,30 +68,97 @@ class LSClient:
     async def __aexit__(self, *_: object) -> None:
         await self._http.aclose()
 
-    async def request(self, tr_cd: str, path: str, body: dict) -> dict:
-        """Send a REST request.
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-        Args:
-            tr_cd: Transaction code (e.g. "t1101").
-            path: API path (e.g. "/stock/market-data").
-            body: Request body dict.
+    async def call(self, tr_cd: str, **kwargs: object) -> TRResponse:
+        """단건 요청. kwargs는 첫 번째 InBlock 필드에 매핑.
+
+        Example:
+            await client.call("t1101", shcode="005930")
         """
+        spec = self._catalog.tr(tr_cd)
+        _assert_not_realtime(spec)
+        return await self._post(spec, self._build_body(spec, kwargs))
+
+    async def paginate(self, tr_cd: str, **kwargs: object) -> AsyncIterator[TRResponse]:
+        """tr_cont 기반 자동 페이지네이션.
+
+        Example:
+            async for page in client.paginate("t1301", shcode="005930", ...):
+                rows = page.block("t1301OutBlock1")
+        """
+        spec = self._catalog.tr(tr_cd)
+        _assert_not_realtime(spec)
+        body = self._build_body(spec, kwargs)
+        cont, cont_key = "N", ""
+        while True:
+            resp = await self._post(spec, body, tr_cont=cont, tr_cont_key=cont_key)
+            yield resp
+            if not resp.has_next:
+                break
+            cont, cont_key = "Y", resp.cont_key
+
+    async def raw(self, tr_cd: str, body: dict) -> TRResponse:
+        """바디를 직접 지정하는 저수준 호출.
+
+        Example:
+            await client.raw("t2106", {
+                "t2106InBlock": {"code": "101R3", "nrec": 2},
+                "t2106InBlock1": [{"indx": 0, ...}, {"indx": 1, ...}],
+            })
+        """
+        spec = self._catalog.tr(tr_cd)
+        return await self._post(spec, body)
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _build_body(self, spec: TRSpec, kwargs: dict) -> dict:
+        block = spec.first_in_block()
+        if not block:
+            return {}
+        return {block.name: kwargs}
+
+    async def _post(
+        self,
+        spec: TRSpec,
+        body: dict,
+        *,
+        tr_cont: str = "N",
+        tr_cont_key: str = "",
+    ) -> TRResponse:
         token = await self._tokens.get()
         resp = await self._http.post(
-            path,
+            spec.url,
             headers={
                 "authorization": f"Bearer {token}",
                 "content-type": "application/json; charset=utf-8",
-                "tr_cd": tr_cd,
-                "tr_cont": "N",
-                "tr_cont_key": "",
-                "mac_address": "",
+                "tr_cd": spec.code,
+                "tr_cont": tr_cont,
+                "tr_cont_key": tr_cont_key,
+                "mac_address": self._mac,
             },
             json=body,
         )
         if resp.status_code != 200:
-            raise LSApiError(f"[{tr_cd}] HTTP {resp.status_code}: {resp.text}")
+            raise LSApiError(f"[{spec.code}] HTTP {resp.status_code}: {resp.text}")
         data = resp.json()
-        if data.get("rsp_cd") not in ("00000", None):
-            raise LSApiError(f"[{tr_cd}] API error {data.get('rsp_cd')}: {data.get('rsp_msg')}")
-        return data
+        rsp_cd = str(data.get("rsp_cd") or "")
+        if rsp_cd and rsp_cd not in ("00000", "0"):
+            raise LSApiError(f"[{spec.code}] {rsp_cd}: {data.get('rsp_msg', '')}")
+        return TRResponse(
+            tr_cd=spec.code,
+            rsp_cd=rsp_cd,
+            rsp_msg=data.get("rsp_msg", ""),
+            body=data,
+            has_next=resp.headers.get("tr_cont", "") == "Y",
+            cont_key=resp.headers.get("tr_cont_key", ""),
+        )
+
+
+def _assert_not_realtime(spec: TRSpec) -> None:
+    if spec.is_realtime:
+        raise LSApiError(f"{spec.code!r}는 실시간 TR입니다 — LSWebSocketClient를 사용하세요")
