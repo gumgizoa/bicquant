@@ -8,7 +8,8 @@ Runs two concurrent tasks:
 import asyncio
 import logging
 
-from monitor import db
+from shared import db
+
 from monitor.deviation import monitor_deviation
 from monitor.sidecar import monitor_sidecar
 

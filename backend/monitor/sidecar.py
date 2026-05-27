@@ -3,10 +3,15 @@
 import asyncio
 import logging
 
+from shared.config import get_config
+from shared.queries import sidecar as sidecar_q
+
 from lsapi import LSClient, LSWebSocketClient
-from monitor import config, db, notifier
+from monitor import notifier
 
 log = logging.getLogger(__name__)
+
+cfg = get_config("monitor")
 
 # jstatus → (event_type, is_trigger)
 _JSTATUS = {
@@ -17,18 +22,14 @@ _JSTATUS = {
 }
 
 _MARKET = {"1": "kospi", "2": "kosdaq"}
+_UPCODE = {"kospi": "001", "kosdaq": "301"}
 
 
-async def _fetch_index_snapshot(upcode: str) -> dict:
+async def _fetch_index_snapshot(client: LSClient, upcode: str) -> dict:
     """Fetch current index level and daily change for context."""
     try:
-        async with LSClient(config.LS_APP_KEY, config.LS_APP_SECRET) as client:
-            data = await client.request(
-                "t1511",
-                "/indtp/market-data",
-                {"t1511InBlock": {"upcode": upcode}},
-            )
-        block = data.get("t1511OutBlock", {})
+        resp = await client.raw("t1511", {"t1511InBlock": {"upcode": upcode}})
+        block = resp.block("t1511OutBlock") or {}
         current = float(block.get("pricejisu", 0))
         change_pct = float(block.get("diffjisu", 0))
         return {"current": f"{current:,.2f}", "change_pct": f"{change_pct:+.2f}"}
@@ -37,37 +38,34 @@ async def _fetch_index_snapshot(upcode: str) -> dict:
         return {}
 
 
-_UPCODE = {"kospi": "001", "kosdaq": "301"}
-
-
 async def monitor_sidecar() -> None:
-    while True:
-        try:
-            async with LSWebSocketClient(config.LS_APP_KEY, config.LS_APP_SECRET) as ws:
-                log.info("JIF WebSocket connected, watching for sidecar events")
-                async for msg in ws.subscribe("JIF", {"tr_key": ""}):
-                    body = msg.get("body", {})
-                    jangubun = body.get("jangubun", "")
-                    jstatus = body.get("jstatus", "")
+    async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as rest:
+        async with LSWebSocketClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as ws:
+            log.info("JIF WebSocket connected, watching for sidecar events")
 
-                    if jstatus not in _JSTATUS or jangubun not in _MARKET:
-                        continue
+            async def on_jif(msg: dict) -> None:
+                body = msg.get("body", {})
+                jangubun = body.get("jangubun", "")
+                jstatus = body.get("jstatus", "")
 
-                    event_type, is_trigger = _JSTATUS[jstatus]
-                    market = _MARKET[jangubun]
-                    log.info(f"Sidecar event: {market} {event_type}")
+                if jstatus not in _JSTATUS or jangubun not in _MARKET:
+                    return
 
-                    index_info = await _fetch_index_snapshot(_UPCODE[market])
+                event_type, is_trigger = _JSTATUS[jstatus]
+                market = _MARKET[jangubun]
+                log.info(f"Sidecar event: {market} {event_type}")
 
-                    analysis = ""
-                    if is_trigger:
-                        analysis = await notifier.analyze_sidecar(market, event_type, index_info)
+                index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
 
-                    await db.save_sidecar_event(market, event_type, analysis, {**body, **index_info})
+                analysis = ""
+                if is_trigger:
+                    analysis = await notifier.analyze_sidecar(market, event_type, index_info)
 
-                    alert = notifier.format_sidecar_alert(market, event_type, index_info, analysis)
-                    await notifier.send_telegram(alert)
+                await sidecar_q.save_event(market, event_type, analysis, {**body, **index_info})
 
-        except Exception as e:
-            log.error(f"JIF WebSocket error: {e}. Reconnecting in 30s...")
-            await asyncio.sleep(30)
+                alert = notifier.format_sidecar_alert(market, event_type, index_info, analysis)
+                await notifier.send_telegram(alert)
+
+            await ws.subscribe("JIF", "", callback=on_jif)
+            # LSWebSocketClient가 재연결을 자동 처리하므로 여기서 영구 대기
+            await asyncio.Future()

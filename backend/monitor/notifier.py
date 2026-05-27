@@ -1,12 +1,13 @@
 import logging
 
 import httpx
-
-from monitor import config
+from shared.config import get_config
 
 log = logging.getLogger(__name__)
 
-_TELEGRAM_URL = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
+cfg = get_config("monitor")
+
+_TELEGRAM_URL = f"https://api.telegram.org/bot{cfg.telegram.bot_token}/sendMessage"
 
 MARKET_NAME = {"kospi": "코스피", "kosdaq": "코스닥"}
 EVENT_NAME = {
@@ -23,7 +24,7 @@ async def send_telegram(message: str) -> None:
             resp = await client.post(
                 _TELEGRAM_URL,
                 json={
-                    "chat_id": config.TELEGRAM_ALERT_CHAT_ID,
+                    "chat_id": cfg.telegram.chat_group_id,
                     "text": message,
                     "parse_mode": "HTML",
                 },
@@ -37,11 +38,11 @@ def _build_llm():
     from langchain_openai import AzureChatOpenAI
 
     return AzureChatOpenAI(
-        model="gpt-5",
-        openai_api_key=config.AZURE_OPENAI_API_KEY,
-        openai_api_version=config.AZURE_OPENAI_API_VERSION,
-        azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
-        azure_deployment=config.AZURE_OPENAI_DEPLOYMENT,
+        model=cfg.azure_openai.model,
+        openai_api_key=cfg.azure_openai.api_key,
+        openai_api_version=cfg.azure_openai.api_version,
+        azure_endpoint=cfg.azure_openai.endpoint,
+        azure_deployment=cfg.azure_openai.deployment,
         max_tokens=400,
     )
 
@@ -91,5 +92,5 @@ def format_deviation_alert(code: str, name: str, current: float, ma50: float, ra
         f"종목: {name} ({code})\n"
         f"현재가: {current:,.2f}\n"
         f"50일 MA: {ma50:,.2f}\n"
-        f"이격도: <b>{ratio:.1f}</b> (기준: {config.DEVIATION_THRESHOLD:.0f})"
+        f"이격도: <b>{ratio:.1f}</b> (기준: {cfg.deviation.threshold:.0f})"
     )
