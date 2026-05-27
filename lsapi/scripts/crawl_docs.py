@@ -6,113 +6,141 @@ Usage:
 """
 
 import argparse
-import asyncio
 import json
 import re
+import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from playwright.async_api import Page, async_playwright
-
-BASE_URL = "https://openapi.ls-sec.co.kr/apiservice"
+BASE_URL = "https://openapi.ls-sec.co.kr"
 DATA_DIR = Path(__file__).parent.parent / "data"
+
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (LsApiHelper crawler)",
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json",
+    "Accept-Language": "ko-KR",
+    "Referer": f"{BASE_URL}/apiservice",
+}
 
 # Fields compared when detecting changes in a property row
 _PROP_KEYS = ("propertyCd", "propertyNm", "propertyType", "propertyLength", "requireYn", "description")
-_BASIC_KEYS = ("method", "url", "domain_prod", "domain_mock", "format", "content_type", "description")
+_BASIC_KEYS = ("method", "url", "domain_prod", "domain_mock", "format", "content_type", "description", "protocol_type")
 
 
 # ---------------------------------------------------------------------------
-# Playwright helpers
+# HTTP helpers
 # ---------------------------------------------------------------------------
 
 
-async def dismiss_modals(page: Page) -> None:
-    await page.evaluate("""
-        () => {
-            document.querySelectorAll('.modal.show').forEach(m => {
-                m.classList.remove('show');
-                m.style.display = 'none';
-            });
-            document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
-            document.body.classList.remove('modal-open');
-        }
-    """)
-
-
-async def get_nav_items(page: Page) -> list[dict]:
-    await page.goto(BASE_URL, wait_until="networkidle", timeout=30_000)
-    await dismiss_modals(page)
-
-    items = await page.evaluate("""
-        () => {
-            const results = [];
-            const re = /goLeftMenuUrl\\("([0-9a-f-]{36})",\\s*"([0-9a-f-]{36})"/;
-            const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-            document.querySelectorAll('nav#lnb > ul > li').forEach(catLi => {
-                if (!uuidRe.test(catLi.id)) return;
-                const catAnchor = catLi.querySelector('ul.second-depth > li > a:not([onclick])');
-                const category = catAnchor ? catAnchor.textContent.trim() : '';
-                catLi.querySelectorAll('ul.third-depth li a[onclick]').forEach(a => {
-                    const m = (a.getAttribute('onclick') || '').match(re);
-                    if (m) results.push({ name: a.textContent.trim(), group_id: m[1], api_id: m[2], category });
-                });
-            });
-            return results;
-        }
-    """)
-
-    seen: set[str] = set()
-    unique = []
-    for item in items:
-        if item["api_id"] not in seen:
-            seen.add(item["api_id"])
-            unique.append(item)
-    return unique
-
-
-async def scrape_api_page(page: Page, item: dict, retries: int = 3) -> dict:
-    api_id = item["api_id"]
-    page_url = f"{BASE_URL}?group_id={item['group_id']}&api_id={api_id}"
-
+def _get(path: str, retries: int = 3) -> bytes:
+    """Fetch path from BASE_URL with retry on failure."""
     for attempt in range(1, retries + 1):
         try:
-            await page.goto(page_url, wait_until="networkidle", timeout=30_000)
-            await dismiss_modals(page)
-            break
+            req = urllib.request.Request(BASE_URL + path, headers=_HEADERS)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.read()
         except Exception:
             if attempt == retries:
                 raise
-            await asyncio.sleep(3 * attempt)
+            time.sleep(3 * attempt)
 
-    api_info = await page.evaluate("async (id) => (await fetch('/api/apis/public/' + id)).json()", api_id)
-    tr_list = await page.evaluate("async (id) => (await fetch('/api/apis/guide/tr/' + id)).json()", api_id)
 
-    tps_map: dict[str, int | None] = await page.evaluate("""
-        () => {
-            const result = {};
-            document.querySelectorAll('.cardApi').forEach(card => {
-                const code = card.querySelector('.apiCode')?.textContent.trim();
-                const tps  = card.querySelector('.apiTest')?.textContent.trim();
-                if (code) { const v = parseInt(tps, 10); result[code] = isNaN(v) ? null : v; }
-            });
-            return result;
-        }
-    """)
+def _get_json(path: str) -> list | dict:
+    return json.loads(_get(path).decode("utf-8"))
 
+
+# ---------------------------------------------------------------------------
+# API fetchers
+# ---------------------------------------------------------------------------
+
+
+def fetch_catalog() -> list[dict]:
+    """Fetch all API groups from the public catalog endpoint."""
+    return _get_json("/api/apis/public?size=1000")
+
+
+def fetch_trs(api_id: str) -> list[dict]:
+    return _get_json(f"/api/apis/guide/tr/{api_id}")
+
+
+def fetch_properties(tr_id: str) -> list[dict]:
+    return _get_json(f"/api/apis/guide/tr/property/{tr_id}")
+
+
+# ---------------------------------------------------------------------------
+# Parsing helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_category(name: str) -> str:
+    """Extract category from API name bracket prefix.
+
+    Args:
+        name: API name, e.g. '[주식] 시세' or '접근토큰 발급'.
+
+    Returns:
+        Category string, e.g. '주식'; falls back to 'OAuth 인증' for
+        names without a bracket prefix (the two auth token endpoints).
+    """
+    m = re.match(r"\[([^\]]+)\]", name)
+    return m.group(1) if m else "OAuth 인증"
+
+
+def _parse_extra_param(raw: str | None) -> dict:
+    """Parse extraParam JSON string into a dict, returning {} on failure."""
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def _parse_tps(raw: str | int | None) -> int | None:
+    """Normalise transactionPerSec to int.
+
+    The API returns this field as a string (e.g. '10') in some responses and
+    as an integer in others. Normalising to int keeps diff comparisons stable.
+
+    Args:
+        raw: Raw value from the API response.
+
+    Returns:
+        Integer TPS limit, or None if absent or unparseable.
+    """
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Scraping
+# ---------------------------------------------------------------------------
+
+
+def scrape_api(catalog_item: dict) -> dict:
+    """Build a full API spec from a catalog entry via direct HTTP calls.
+
+    Args:
+        catalog_item: One entry from the /api/apis/public catalog response.
+
+    Returns:
+        API spec dict with 'name', 'category', 'basic', and 'trs'.
+    """
+    trs_raw = fetch_trs(catalog_item["id"])
     trs = []
-    for tr in tr_list:
-        props = await page.evaluate(
-            "async (id) => (await fetch('/api/apis/guide/tr/property/' + id)).json()",
-            tr["id"],
-        )
-        code = tr.get("trCode", "")
+    for tr in trs_raw:
+        props = fetch_properties(tr["id"])
         trs.append(
             {
                 "name": tr.get("trName", ""),
-                "code": code,
-                "tps_limit": tps_map.get(code),
+                "code": tr.get("trCode", ""),
+                "tps_limit": _parse_tps(tr.get("transactionPerSec")),
                 "request_header": [p for p in props if p.get("bodyType") == "req_h"],
                 "request_body": [p for p in props if p.get("bodyType") == "req_b"],
                 "response_header": [p for p in props if p.get("bodyType") == "res_h"],
@@ -123,16 +151,18 @@ async def scrape_api_page(page: Page, item: dict, retries: int = 3) -> dict:
         )
 
     return {
-        "name": item["name"],
-        "category": item["category"],
+        "name": catalog_item["name"],
+        "category": _extract_category(catalog_item["name"]),
         "basic": {
-            "method": api_info.get("httpMethod", ""),
-            "url": api_info.get("accessUrl", ""),
-            "domain_prod": api_info.get("domain", ""),
-            "domain_mock": api_info.get("simulatedDomain", ""),
-            "format": api_info.get("reqFormat", ""),
-            "content_type": api_info.get("contentType", ""),
-            "description": api_info.get("description", ""),
+            "method": catalog_item.get("httpMethod", ""),
+            "url": catalog_item.get("accessUrl", ""),
+            "domain_prod": catalog_item.get("domain", ""),
+            "domain_mock": catalog_item.get("simulatedDomain"),
+            "format": catalog_item.get("reqFormat", ""),
+            "content_type": catalog_item.get("contentType", ""),
+            "description": catalog_item.get("description", ""),
+            "protocol_type": catalog_item.get("protocolType", ""),
+            "extra_param": _parse_extra_param(catalog_item.get("extraParam")),
         },
         "trs": trs,
     }
@@ -150,14 +180,28 @@ def _crawl_dirs() -> list[Path]:
 
 
 def _save_crawl(results: dict[str, list[dict]], ts: str) -> Path:
+    """Save crawl results to a timestamped directory.
+
+    Writes one JSON file per category. Run build_specs.py afterwards to
+    generate index.json, blocks.json, and catalog.json in src/lsapi/specs/.
+
+    Args:
+        results: Mapping of category name to list of API specs.
+        ts: Timestamp string used as the directory name.
+
+    Returns:
+        Path to the created crawl directory.
+    """
     crawl_dir = DATA_DIR / ts
     crawl_dir.mkdir(parents=True, exist_ok=True)
+
     for cat, apis in results.items():
         safe = re.sub(r'[/\\:*?"<>|]', "_", cat)
         (crawl_dir / f"{safe}.json").write_text(
             json.dumps({"category": cat, "scraped_at": ts, "apis": apis}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
     return crawl_dir
 
 
@@ -166,8 +210,10 @@ def _load_crawl(crawl_dir: Path) -> dict[str, dict]:
     result: dict[str, dict] = {}
     for f in crawl_dir.glob("*.json"):
         data = json.loads(f.read_text(encoding="utf-8"))
+        if "apis" not in data:
+            continue
         cat = data.get("category", f.stem)
-        result[cat] = {api["name"]: api for api in data.get("apis", [])}
+        result[cat] = {api["name"]: api for api in data["apis"]}
     return result
 
 
@@ -331,34 +377,30 @@ def _print_diff_summary(diff: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def run_crawl() -> Path:
+def run_crawl() -> Path:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+    print("Phase 1: 카탈로그 조회...")
+    catalog = fetch_catalog()
+    categories = sorted(set(_extract_category(it["name"]) for it in catalog))
+    print(f"  {len(catalog)}개 API / {len(categories)}개 카테고리\n")
 
-        print("Phase 1: 사이드바 탐색...")
-        nav_items = await get_nav_items(page)
-        categories = sorted(set(i["category"] for i in nav_items))
-        print(f"  {len(nav_items)}개 API / {len(categories)}개 카테고리\n")
+    print("Phase 2: API 명세 크롤링...")
+    results: dict[str, list[dict]] = {}
+    errors: list[dict] = []
 
-        print("Phase 2: API 명세 크롤링...")
-        results: dict[str, list[dict]] = {}
-        errors: list[dict] = []
-
-        for idx, item in enumerate(nav_items, 1):
-            print(f"[{idx}/{len(nav_items)}] {item['category']} / {item['name']}", end="", flush=True)
-            try:
-                spec = await scrape_api_page(page, item)
-                results.setdefault(item["category"], []).append(spec)
-                print(" ✓")
-            except Exception as exc:
-                print(f" ✗ {exc}")
-                errors.append({"item": item, "error": str(exc)})
-
-        await browser.close()
+    for idx, item in enumerate(catalog, 1):
+        print(f"[{idx}/{len(catalog)}] {item['name']}", end="", flush=True)
+        try:
+            spec = scrape_api(item)
+            results.setdefault(spec["category"], []).append(spec)
+            tr_count = len(spec["trs"])
+            print(f" ✓ ({tr_count} TRs)")
+        except Exception as exc:
+            print(f" ✗ {exc}")
+            errors.append({"item": {"id": item["id"], "name": item["name"]}, "error": str(exc)})
+        time.sleep(0.1)
 
     print(f"\nPhase 3: JSON 저장 → data/{ts}/")
     crawl_dir = _save_crawl(results, ts)
@@ -393,7 +435,7 @@ def run_diff(new_dir: Path) -> None:
     _print_diff_summary(diff)
 
 
-async def main(diff_only: bool = False) -> None:
+def main(diff_only: bool = False) -> None:
     if diff_only:
         dirs = _crawl_dirs()
         if len(dirs) < 2:
@@ -402,7 +444,7 @@ async def main(diff_only: bool = False) -> None:
         run_diff(dirs[-1])
         return
 
-    new_dir = await run_crawl()
+    new_dir = run_crawl()
     run_diff(new_dir)
 
 
@@ -410,4 +452,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--diff-only", action="store_true", help="크롤링 없이 최근 두 결과를 비교만 함")
     args = parser.parse_args()
-    asyncio.run(main(diff_only=args.diff_only))
+    main(diff_only=args.diff_only)
