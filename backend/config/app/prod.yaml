@@ -1,0 +1,7 @@
+defaults:
+  - app/default
+  - _self_
+
+server:
+  workers: 1
+  reload: false

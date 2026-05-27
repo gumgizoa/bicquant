@@ -1,0 +1,7 @@
+defaults:
+  - monitor/default
+  - _self_
+
+deviation:
+  threshold: 130.0
+  poll_interval: 600  # 10 minutes
