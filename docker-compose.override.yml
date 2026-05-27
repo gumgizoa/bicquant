@@ -1,0 +1,6 @@
+# Dev-only overrides. Auto-merged by `docker-compose up` when present.
+# Production: run with explicit `-f docker-compose.yml` to skip this file.
+services:
+  postgres:
+    ports:
+      - "5432:5432"   # expose to host so alembic / psql can run from laptop
