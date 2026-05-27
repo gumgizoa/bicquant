@@ -89,16 +89,30 @@ async def scrape_api_page(page: Page, item: dict, retries: int = 3) -> dict:
     api_info = await page.evaluate("async (id) => (await fetch('/api/apis/public/' + id)).json()", api_id)
     tr_list = await page.evaluate("async (id) => (await fetch('/api/apis/guide/tr/' + id)).json()", api_id)
 
+    tps_map: dict[str, int | None] = await page.evaluate("""
+        () => {
+            const result = {};
+            document.querySelectorAll('.cardApi').forEach(card => {
+                const code = card.querySelector('.apiCode')?.textContent.trim();
+                const tps  = card.querySelector('.apiTest')?.textContent.trim();
+                if (code) { const v = parseInt(tps, 10); result[code] = isNaN(v) ? null : v; }
+            });
+            return result;
+        }
+    """)
+
     trs = []
     for tr in tr_list:
         props = await page.evaluate(
             "async (id) => (await fetch('/api/apis/guide/tr/property/' + id)).json()",
             tr["id"],
         )
+        code = tr.get("trCode", "")
         trs.append(
             {
                 "name": tr.get("trName", ""),
-                "code": tr.get("trCode", ""),
+                "code": code,
+                "tps_limit": tps_map.get(code),
                 "request_header": [p for p in props if p.get("bodyType") == "req_h"],
                 "request_body": [p for p in props if p.get("bodyType") == "req_b"],
                 "response_header": [p for p in props if p.get("bodyType") == "res_h"],
@@ -189,6 +203,8 @@ def _diff_fields(old: list[dict], new: list[dict]) -> list[dict]:
 
 def _diff_tr(old_tr: dict, new_tr: dict) -> list[dict]:
     changes = []
+    if old_tr.get("tps_limit") != new_tr.get("tps_limit"):
+        changes.append({"type": "tps_changed", "old": old_tr.get("tps_limit"), "new": new_tr.get("tps_limit")})
     for section in ("request_header", "request_body", "response_header", "response_body"):
         fc = _diff_fields(old_tr.get(section, []), new_tr.get(section, []))
         for c in fc:
@@ -304,6 +320,8 @@ def _print_diff_summary(diff: dict) -> None:
                         elif ft == "field_changed":
                             for fk, fv in fc["changes"].items():
                                 print(f"        [{sec}] {fc['propertyCd']}.{fk}: {fv['old']!r} → {fv['new']!r}")
+                        elif ft == "tps_changed":
+                            print(f"        TPS 변경: {fc['old']} → {fc['new']}")
                         elif ft == "example_changed":
                             print(f"        예시 변경: {fc['key']}")
 
