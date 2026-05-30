@@ -17,4 +17,7 @@ jobs:
           script: |
             cd /app
             git pull origin main
-            docker compose up -d --build
+            # Explicitly specify docker-compose.yml to prevent docker-compose.override.yml
+            # from being auto-merged. The override exposes postgres port 5432 to the host,
+            # which must never happen in production.
+            docker compose -f docker-compose.yml up -d --build
