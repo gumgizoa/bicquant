@@ -7,8 +7,6 @@ log = logging.getLogger(__name__)
 
 cfg = get_config("monitor")
 
-_TELEGRAM_URL = f"https://api.telegram.org/bot{cfg.telegram.bot_token}/sendMessage"
-
 MARKET_NAME = {"kospi": "코스피", "kosdaq": "코스닥"}
 EVENT_NAME = {
     "sell_triggered": "매도 사이드카 발동 🚨",
@@ -29,9 +27,10 @@ CB_EVENT_NAME = {
 
 async def send_telegram(message: str) -> None:
     try:
+        url = f"https://api.telegram.org/bot{cfg.telegram.bot_token}/sendMessage"
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
-                _TELEGRAM_URL,
+                url,
                 json={
                     "chat_id": cfg.telegram.chat_group_id,
                     "text": message,

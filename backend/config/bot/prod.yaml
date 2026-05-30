@@ -1,5 +1,1 @@
-defaults:
-  - bot/default
-  - _self_
-
 log_level: INFO
