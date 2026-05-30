@@ -152,7 +152,20 @@ Format:
 
 ---
 
-## 8. Project Structure
+## 8. Testing — Path Setup
+
+`conftest.py` is for fixtures only. Never use it to manipulate `sys.path`.
+
+To make internal packages (e.g. `monitor`, `shared`) importable in tests, add `pythonpath` to `[tool.pytest.ini_options]` in the root `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+```
+
+---
+
+## 9. Project Structure
 
 ```
 bicquant/                           # uv workspace root
@@ -204,7 +217,7 @@ bicquant/                           # uv workspace root
 
 ---
 
-## 9. Key Commands
+## 10. Key Commands
 
 ### Development
 
@@ -240,7 +253,7 @@ uv run ruff check --fix . && uv run ruff format .
 
 ---
 
-## 10. Environment
+## 11. Environment
 
 Secrets and environment variables live in `.env` (gitignored). See `.env.example` for the required keys.
 

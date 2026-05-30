@@ -16,6 +16,15 @@ EVENT_NAME = {
     "buy_triggered": "매수 사이드카 발동 🚀",
     "buy_released": "매수 사이드카 해제",
 }
+CB_EVENT_NAME = {
+    "cb_l1_triggered": "서킷브레이크 1단계 발동 🚨",
+    "cb_l1_released": "서킷브레이크 1단계 해제",
+    "cb_l1_simul_close": "서킷브레이크 1단계 동시호가종료",
+    "cb_l2_triggered": "서킷브레이크 2단계 발동 🚨🚨",
+    "cb_l3_triggered": "서킷브레이크 3단계 발동 — 당일 장종료 🔴",
+    "cb_l2_released": "서킷브레이크 2단계 해제",
+    "cb_l2_simul_close": "서킷브레이크 2단계 동시호가종료",
+}
 
 
 async def send_telegram(message: str) -> None:
@@ -34,56 +43,36 @@ async def send_telegram(message: str) -> None:
         log.error(f"Telegram send failed: {e}")
 
 
-def _build_llm():
-    from langchain_openai import AzureChatOpenAI
-
-    return AzureChatOpenAI(
-        model=cfg.azure_openai.model,
-        openai_api_key=cfg.azure_openai.api_key,
-        openai_api_version=cfg.azure_openai.api_version,
-        azure_endpoint=cfg.azure_openai.endpoint,
-        azure_deployment=cfg.azure_openai.deployment,
-        max_tokens=400,
-    )
-
-
-async def analyze_sidecar(market: str, event_type: str, index_info: dict) -> str:
-    try:
-        from langchain_core.messages import HumanMessage
-
-        market_kr = MARKET_NAME.get(market, market)
-        event_kr = EVENT_NAME.get(event_type, event_type)
-        current = index_info.get("current", "N/A")
-        change_pct = index_info.get("change_pct", "N/A")
-
-        prompt = (
-            f"{market_kr} 시장에서 {event_kr}가 발생했습니다.\n\n"
-            f"현재 지수: {current}\n"
-            f"전일 대비: {change_pct}%\n\n"
-            "사이드카 발동 원인과 현재 시장 상황을 3-4문장으로 간결하게 분석해주세요."
-        )
-        response = _build_llm().invoke([HumanMessage(content=prompt)])
-        return response.content
-    except Exception as e:
-        log.error(f"LLM analysis failed: {e}")
-        return ""
-
-
-def format_sidecar_alert(market: str, event_type: str, index_info: dict, analysis: str) -> str:
+def format_sidecar_alert(market: str, event_type: str, index_info: dict) -> str:
     market_kr = MARKET_NAME.get(market, market)
     event_kr = EVENT_NAME.get(event_type, event_type)
     current = index_info.get("current", "N/A")
     change_pct = index_info.get("change_pct", "N/A")
 
-    lines = [
-        f"<b>{market_kr} {event_kr}</b>",
-        "",
-        f"현재 지수: {current}",
-        f"전일 대비: {change_pct}%",
-    ]
-    if analysis:
-        lines += ["", "📝 분석", analysis]
-    return "\n".join(lines)
+    return "\n".join(
+        [
+            f"<b>{market_kr} {event_kr}</b>",
+            "",
+            f"현재 지수: {current}",
+            f"전일 대비: {change_pct}%",
+        ]
+    )
+
+
+def format_circuit_breaker_alert(market: str, event_type: str, index_info: dict) -> str:
+    market_kr = MARKET_NAME.get(market, market)
+    event_kr = CB_EVENT_NAME.get(event_type, event_type)
+    current = index_info.get("current", "N/A")
+    change_pct = index_info.get("change_pct", "N/A")
+
+    return "\n".join(
+        [
+            f"<b>{market_kr} {event_kr}</b>",
+            "",
+            f"현재 지수: {current}",
+            f"전일 대비: {change_pct}%",
+        ]
+    )
 
 
 def format_deviation_alert(code: str, name: str, current: float, ma50: float, ratio: float) -> str:

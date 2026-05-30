@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from shared.config import get_config
+from shared.queries import circuit_breaker as cb_q
 from shared.queries import sidecar as sidecar_q
 
 from lsapi import LSClient, LSWebSocketClient
@@ -13,16 +14,27 @@ log = logging.getLogger(__name__)
 
 cfg = get_config("monitor")
 
-# jstatus → (event_type, is_trigger)
+# jstatus → event_type
 _JSTATUS = {
-    "64": ("sell_triggered", True),
-    "65": ("sell_released", False),
-    "66": ("buy_triggered", True),
-    "67": ("buy_released", False),
+    "64": "sell_triggered",
+    "65": "sell_released",
+    "66": "buy_triggered",
+    "67": "buy_released",
 }
 
 _MARKET = {"1": "kospi", "2": "kosdaq"}
 _UPCODE = {"kospi": "001", "kosdaq": "301"}
+
+# jstatus → event_type for KOSPI/KOSDAQ circuit breaker events
+_CB_STATUS = {
+    "61": "cb_l1_triggered",
+    "62": "cb_l1_released",
+    "63": "cb_l1_simul_close",
+    "68": "cb_l2_triggered",
+    "69": "cb_l3_triggered",
+    "70": "cb_l2_released",
+    "71": "cb_l2_simul_close",
+}
 
 
 async def _fetch_index_snapshot(client: LSClient, upcode: str) -> dict:
@@ -48,23 +60,32 @@ async def monitor_sidecar() -> None:
                 jangubun = body.get("jangubun", "")
                 jstatus = body.get("jstatus", "")
 
-                if jstatus not in _JSTATUS or jangubun not in _MARKET:
+                if jangubun not in _MARKET:
                     return
 
-                event_type, is_trigger = _JSTATUS[jstatus]
                 market = _MARKET[jangubun]
-                log.info(f"Sidecar event: {market} {event_type}")
 
-                index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
+                if jstatus in _JSTATUS:
+                    event_type = _JSTATUS[jstatus]
+                    log.info(f"Sidecar event: {market} {event_type}")
 
-                analysis = ""
-                if is_trigger:
-                    analysis = await notifier.analyze_sidecar(market, event_type, index_info)
+                    index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
 
-                await sidecar_q.save_event(market, event_type, analysis, {**body, **index_info})
+                    await sidecar_q.save_event(market, event_type, "", {**body, **index_info})
 
-                alert = notifier.format_sidecar_alert(market, event_type, index_info, analysis)
-                await notifier.send_telegram(alert)
+                    alert = notifier.format_sidecar_alert(market, event_type, index_info)
+                    await notifier.send_telegram(alert)
+
+                elif jstatus in _CB_STATUS:
+                    event_type = _CB_STATUS[jstatus]
+                    log.info(f"Circuit breaker event: {market} {event_type}")
+
+                    index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
+
+                    await cb_q.save_event(market, event_type, "", {**body, **index_info})
+
+                    alert = notifier.format_circuit_breaker_alert(market, event_type, index_info)
+                    await notifier.send_telegram(alert)
 
             await ws.subscribe("JIF", "", callback=on_jif)
             # LSWebSocketClient handles reconnection automatically; wait here indefinitely

@@ -36,7 +36,10 @@ def _strip_name(prop_cd: str) -> str:
 def _clean_desc(raw) -> str:
     if not raw:
         return ""
-    return re.sub(r"<[^>]+>", " ", raw).strip()
+    text = re.sub(r"<br\s*/?>", "\n", raw, flags=re.IGNORECASE)
+    text = re.sub(r"&nbsp;", " ", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    return text.strip()
 
 
 def _is_block_type(prop_type: str) -> bool:
@@ -78,6 +81,7 @@ def _parse_blocks(rows: list[dict]) -> dict:
             blocks[block_name] = {
                 "type": "Array" if prop_type == "A0005" else "Object",
                 "fields": [],
+                "description": _clean_desc(row.get("description")),
             }
             prefix_to_block[parts[0]] = block_name
 
@@ -106,7 +110,7 @@ def _parse_blocks(rows: list[dict]) -> dict:
                         "type": "Array" if prop_type == "A0005" else "Object",
                         "length": None,
                         "required": row.get("requireYn") == "Y",
-                        "description": "",
+                        "description": _clean_desc(row.get("description")),
                     }
                 )
             else:

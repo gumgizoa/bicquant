@@ -12,36 +12,26 @@ from monitor.sidecar import _JSTATUS, _MARKET, _fetch_index_snapshot
 
 
 def test_format_sell_triggered_includes_market_and_event() -> None:
-    alert = format_sidecar_alert("kospi", "sell_triggered", {}, "")
+    alert = format_sidecar_alert("kospi", "sell_triggered", {})
     assert "코스피" in alert
     assert "매도 사이드카 발동" in alert
 
 
 def test_format_buy_triggered_includes_emoji() -> None:
-    alert = format_sidecar_alert("kosdaq", "buy_triggered", {}, "")
+    alert = format_sidecar_alert("kosdaq", "buy_triggered", {})
     assert "🚀" in alert
 
 
 def test_format_includes_index_info() -> None:
     info = {"current": "2,700.00", "change_pct": "-3.50"}
-    alert = format_sidecar_alert("kospi", "sell_triggered", info, "")
+    alert = format_sidecar_alert("kospi", "sell_triggered", info)
     assert "2,700.00" in alert
     assert "-3.50" in alert
 
 
-def test_format_includes_analysis_when_present() -> None:
-    alert = format_sidecar_alert("kospi", "sell_triggered", {}, "시장 분석 내용입니다.")
-    assert "시장 분석 내용입니다." in alert
-
-
-def test_format_omits_analysis_section_when_empty() -> None:
-    alert = format_sidecar_alert("kospi", "sell_triggered", {}, "")
-    assert "📝 분석" not in alert
-
-
 @pytest.mark.parametrize("event_type", ["sell_triggered", "sell_released", "buy_triggered", "buy_released"])
 def test_format_all_event_types_produce_output(event_type: str) -> None:
-    alert = format_sidecar_alert("kospi", event_type, {}, "")
+    alert = format_sidecar_alert("kospi", event_type, {})
     assert len(alert) > 0
 
 
@@ -51,27 +41,19 @@ def test_format_all_event_types_produce_output(event_type: str) -> None:
 
 
 def test_jstatus_sell_triggered() -> None:
-    event_type, is_trigger = _JSTATUS["64"]
-    assert event_type == "sell_triggered"
-    assert is_trigger is True
+    assert _JSTATUS["64"] == "sell_triggered"
 
 
 def test_jstatus_sell_released() -> None:
-    event_type, is_trigger = _JSTATUS["65"]
-    assert event_type == "sell_released"
-    assert is_trigger is False
+    assert _JSTATUS["65"] == "sell_released"
 
 
 def test_jstatus_buy_triggered() -> None:
-    event_type, is_trigger = _JSTATUS["66"]
-    assert event_type == "buy_triggered"
-    assert is_trigger is True
+    assert _JSTATUS["66"] == "buy_triggered"
 
 
 def test_jstatus_buy_released() -> None:
-    event_type, is_trigger = _JSTATUS["67"]
-    assert event_type == "buy_released"
-    assert is_trigger is False
+    assert _JSTATUS["67"] == "buy_released"
 
 
 def test_market_mapping() -> None:
