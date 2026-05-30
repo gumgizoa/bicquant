@@ -1,0 +1,41 @@
+[project]
+name = "bicquant-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "gunicorn",
+    "requests",
+    "python-dotenv",
+    "omegaconf>=2.3",
+    "python-telegram-bot>=20.0",
+    "asyncpg",
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "langchain",
+    "langchain-anthropic",
+    "langchain-openai",
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "fredapi",
+    "hmmlearn",
+    "yfinance",
+    "statsmodels",
+    "seaborn",
+    "openpyxl",
+    "paramiko",
+    "lsapi",
+]
+
+[dependency-groups]
+dev = [
+    "ruff==0.11.2",
+    "pytest",
+    "pytest-asyncio",
+    "pre-commit",
+]
+
+[tool.uv.sources]
+lsapi = { workspace = true }

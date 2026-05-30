@@ -1,0 +1,22 @@
+# ============================================================
+# Shared properties — referenced by all service configs.
+# Secrets are injected via ${oc.env:VAR_NAME} from .env.
+# Non-secret structural settings go directly into service yamls.
+# ============================================================
+
+telegram:
+  bot_token: ${oc.env:TELEGRAM_BOT_TOKEN}
+  # Prod/dev group IDs live in each server's .env
+  chat_group_id: ${oc.env:TELEGRAM_CHAT_GROUP_ID}
+
+ls_api:
+  app_key: ${oc.env:LS_OPENAPI_APP_KEY}
+  app_secret: ${oc.env:LS_OPENAPI_APP_SECRET}
+  user_id: ${oc.env:LS_OPENAPI_USER_ID,""}
+
+azure_openai:
+  api_key: ${oc.env:AZURE_OPENAI_API_KEY}
+  api_version: ${oc.env:AZURE_OPENAI_API_VERSION}
+  endpoint: ${oc.env:AZURE_OPENAI_ENDPOINT}
+  deployment: ${oc.env:AZURE_OPENAI_DEPLOYMENT}
+  model: gpt-5

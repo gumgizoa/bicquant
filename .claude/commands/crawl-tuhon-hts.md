@@ -1,7 +1,7 @@
 Run the HTS crawl script on the Parallels Windows VM.
 
 ```bash
-conda run -n bicquant python parallels/src/crawl_tuhon_hts.py $ARGUMENTS
+./.venv/bin/python parallels/src/crawl_tuhon_hts.py $ARGUMENTS
 ```
 
 ## Arguments

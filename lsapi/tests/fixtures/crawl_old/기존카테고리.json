@@ -1,0 +1,21 @@
+{
+  "category": "기존카테고리",
+  "scraped_at": "20260514_000000",
+  "apis": [
+    {
+      "name": "[기존] 조회",
+      "category": "기존카테고리",
+      "basic": {
+        "method": "POST",
+        "url": "/legacy/query",
+        "domain_prod": "https://openapi.ls-sec.co.kr:8080",
+        "domain_mock": null,
+        "format": "JSON",
+        "content_type": "application/json; charset=UTF-8",
+        "description": "레거시 조회 API",
+        "protocol_type": "REST"
+      },
+      "trs": []
+    }
+  ]
+}

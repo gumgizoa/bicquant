@@ -1,0 +1,3 @@
+deviation:
+  threshold: 130.0
+  poll_interval: 60  # 1 minute — fast feedback in dev

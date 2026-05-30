@@ -1,0 +1,736 @@
+[
+  {
+    "name": "접근토큰 폐기",
+    "category": "OAuth 인증",
+    "method": "POST",
+    "url": "/oauth2/revoke",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "revoke"
+    ]
+  },
+  {
+    "name": "접근토큰 발급",
+    "category": "OAuth 인증",
+    "method": "POST",
+    "url": "/oauth2/token",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "token"
+    ]
+  },
+  {
+    "name": "[기타] 시간조회",
+    "category": "기타",
+    "method": "POST",
+    "url": "/etc/time-search",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t0167"
+    ]
+  },
+  {
+    "name": "[기타] 실시간 시세",
+    "category": "기타",
+    "method": "POST",
+    "url": "/websocket/etc",
+    "domain": "wss://openapi.ls-sec.co.kr:9443",
+    "trs": [
+      "JIF",
+      "NWS"
+    ]
+  },
+  {
+    "name": "[선물/옵션] 시세",
+    "category": "선물/옵션",
+    "method": "POST",
+    "url": "/futureoption/market-data",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t2111",
+      "t2112",
+      "t2106",
+      "t2212",
+      "t2214",
+      "t2210",
+      "t2301",
+      "t2407",
+      "t2424",
+      "t2522",
+      "t8401",
+      "t8402",
+      "t8403",
+      "t8404",
+      "t8405",
+      "t8406",
+      "t8426",
+      "t8427",
+      "t8467",
+      "t8433",
+      "t8434",
+      "t8435",
+      "t9943",
+      "t9944",
+      "t8455",
+      "t8456",
+      "t8457",
+      "t8458",
+      "t8459",
+      "t8460"
+    ]
+  },
+  {
+    "name": "[선물/옵션] 실시간 시세",
+    "category": "선물/옵션",
+    "method": "POST",
+    "url": "/websocket/futureoption",
+    "domain": "wss://openapi.ls-sec.co.kr:9443",
+    "trs": [
+      "C01",
+      "CD0",
+      "FC9",
+      "FD0",
+      "FH9",
+      "FX9",
+      "H01",
+      "JC0",
+      "JD0",
+      "JH0",
+      "JX0",
+      "O01",
+      "OC0",
+      "OD0",
+      "OH0",
+      "OMG",
+      "OX0",
+      "YC3",
+      "YF9",
+      "YJC",
+      "YOC",
+      "DC0",
+      "O02",
+      "C02",
+      "DH0",
+      "H02",
+      "DD0",
+      "DX0",
+      "DYC",
+      "DBM",
+      "DBT"
+    ]
+  },
+  {
+    "name": "[선물/옵션] 투자자",
+    "category": "선물/옵션",
+    "method": "POST",
+    "url": "/futureoption/investor",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t2541",
+      "t2545",
+      "t8462",
+      "t8463"
+    ]
+  },
+  {
+    "name": "[선물/옵션] 차트",
+    "category": "선물/옵션",
+    "method": "POST",
+    "url": "/futureoption/chart",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t2216",
+      "t8464",
+      "t8465",
+      "t8466",
+      "t8461"
+    ]
+  },
+  {
+    "name": "[선물/옵션] 계좌",
+    "category": "선물/옵션",
+    "method": "POST",
+    "url": "/futureoption/accno",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "CFOAQ00600",
+      "CFOAQ50600",
+      "CFOAQ10100",
+      "CFOBQ10500",
+      "CFOEQ11100",
+      "CFOEQ82600",
+      "CFOFQ02400",
+      "t0434",
+      "t0441",
+      "CCENQ10100",
+      "CCENQ30100",
+      "CCENQ90200",
+      "FOCCQ33700"
+    ]
+  },
+  {
+    "name": "[선물/옵션] 기타",
+    "category": "선물/옵션",
+    "method": "POST",
+    "url": "/futureoption/etc",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "MMDAQ91200"
+    ]
+  },
+  {
+    "name": "[선물/옵션] 주문",
+    "category": "선물/옵션",
+    "method": "POST",
+    "url": "/futureoption/order",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "CFOAT00100",
+      "CFOAT00200",
+      "CFOAT00300",
+      "CFOBQ10800",
+      "CCENT00100",
+      "CCENT00200",
+      "CCENT00300"
+    ]
+  },
+  {
+    "name": "[실시간 시세 투자정보] 투자정보",
+    "category": "실시간 시세 투자정보",
+    "method": "POST",
+    "url": "/websocket/investinfo",
+    "domain": "wss://openapi.ls-sec.co.kr:9443",
+    "trs": [
+      "BMT",
+      "CUR",
+      "MK2"
+    ]
+  },
+  {
+    "name": "[업종] 시세",
+    "category": "업종",
+    "method": "POST",
+    "url": "/indtp/market-data",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1514",
+      "t8424",
+      "t1485",
+      "t1511",
+      "t1516"
+    ]
+  },
+  {
+    "name": "[업종] 차트",
+    "category": "업종",
+    "method": "POST",
+    "url": "/indtp/chart",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t4203",
+      "t8417",
+      "t8418",
+      "t8419"
+    ]
+  },
+  {
+    "name": "[업종] 실시간 시세",
+    "category": "업종",
+    "method": "POST",
+    "url": "/websocket/indtp",
+    "domain": "wss://openapi.ls-sec.co.kr:9443",
+    "trs": [
+      "BM_"
+    ]
+  },
+  {
+    "name": "[주식] 거래원",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/exchange",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1752",
+      "t1764",
+      "t1771"
+    ]
+  },
+  {
+    "name": "[주식] 종목검색",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/item-search",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1809",
+      "t1825",
+      "t1826",
+      "t1852",
+      "t1856",
+      "t1866",
+      "t1859 ",
+      "t1860"
+    ]
+  },
+  {
+    "name": "[주식] 시세",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/market-data",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1101",
+      "t1102",
+      "t1104",
+      "t1105",
+      "t1109",
+      "t1301",
+      "t1302",
+      "t1305",
+      "t1308",
+      "t1310",
+      "t1404",
+      "t1405",
+      "t1410",
+      "t1422",
+      "t1427",
+      "t1442",
+      "t1449",
+      "t1471",
+      "t1475",
+      "t1486",
+      "t1488",
+      "t8407",
+      "t8450",
+      "t8454",
+      "t9945"
+    ]
+  },
+  {
+    "name": "[주식] 투자정보",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/investinfo",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t3102",
+      "t3202",
+      "t3320",
+      "t3341",
+      "t3401",
+      "t3518",
+      "t3521",
+      "t8428"
+    ]
+  },
+  {
+    "name": "[주식] 프로그램",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/program",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1631",
+      "t1632",
+      "t1633",
+      "t1636",
+      "t1637",
+      "t1640",
+      "t1662"
+    ]
+  },
+  {
+    "name": "[주식] 상위종목",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/high-item",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1441",
+      "t1444",
+      "t1452",
+      "t1463",
+      "t1466",
+      "t1481",
+      "t1482",
+      "t1489",
+      "t1492"
+    ]
+  },
+  {
+    "name": "[주식] 차트",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/chart",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1665",
+      "t8410",
+      "t8411",
+      "t8412",
+      "t8451",
+      "t8452",
+      "t8453"
+    ]
+  },
+  {
+    "name": "[주식] ETF",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/etf",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1901",
+      "t1902",
+      "t1903",
+      "t1904",
+      "t1906"
+    ]
+  },
+  {
+    "name": "[주식] 기타",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/etc",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "CLNAQ00100",
+      "t1403",
+      "t1411",
+      "t1638",
+      "t1921",
+      "t1926",
+      "t1927",
+      "t1941",
+      "t8430",
+      "t8436"
+    ]
+  },
+  {
+    "name": "[주식] 계좌",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/accno",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "CDPCQ04700",
+      "CSPAQ00600",
+      "CSPAQ12200",
+      "CSPAQ12300",
+      "CSPAQ13700",
+      "CSPAQ22200",
+      "CSPBQ00200",
+      "FOCCQ33600",
+      "t0150",
+      "t0151",
+      "t0424",
+      "t0425"
+    ]
+  },
+  {
+    "name": "[주식] 주문",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/order",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "CSPAT00601",
+      "CSPAT00701",
+      "CSPAT00801"
+    ]
+  },
+  {
+    "name": "[주식] 외인/기관",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/frgr-itt",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1702",
+      "t1716",
+      "t1717"
+    ]
+  },
+  {
+    "name": "[주식] 투자자",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/investor",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1601",
+      "t1602",
+      "t1603",
+      "t1615",
+      "t1617",
+      "t1621",
+      "t1664"
+    ]
+  },
+  {
+    "name": "[주식] ELW",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/elw",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1950",
+      "t1951",
+      "t1954",
+      "t1956",
+      "t1958",
+      "t1959",
+      "t1960",
+      "t1961",
+      "t1964",
+      "t1966",
+      "t1969",
+      "t1971",
+      "t1972",
+      "t1973",
+      "t1974",
+      "t1988",
+      "t8431",
+      "t9905",
+      "t9907",
+      "t9942"
+    ]
+  },
+  {
+    "name": "[주식] 섹터",
+    "category": "주식",
+    "method": "POST",
+    "url": "/stock/sector",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "t1531",
+      "t1532",
+      "t1533",
+      "t1537",
+      "t8425"
+    ]
+  },
+  {
+    "name": "[주식] 실시간 시세",
+    "category": "주식",
+    "method": "POST",
+    "url": "/websocket/stock",
+    "domain": "wss://openapi.ls-sec.co.kr:9443",
+    "trs": [
+      "B7_",
+      "DH1",
+      "DHA",
+      "DK3",
+      "DS3",
+      "DVI",
+      "H1_",
+      "H2_",
+      "HA_",
+      "HB_",
+      "I5_",
+      "IJ_",
+      "K1_",
+      "K3_",
+      "KH_",
+      "KM_",
+      "KS_",
+      "OK_",
+      "PH_",
+      "PM_",
+      "S2_",
+      "S3_",
+      "S4_",
+      "SC0",
+      "SC1",
+      "SC2",
+      "SC3",
+      "SC4",
+      "SHC",
+      "SHD",
+      "SHI",
+      "SHO",
+      "VI_",
+      "YJ_",
+      "YK3",
+      "YS3",
+      "ESN",
+      "h2_",
+      "h3_",
+      "k1_",
+      "s2_",
+      "s3_",
+      "s4_",
+      "Ys3",
+      "NS3",
+      "NH1",
+      "NS2",
+      "NYS",
+      "NVI",
+      "NK1",
+      "NPH",
+      "NPM",
+      "NBT",
+      "NBM",
+      "US3",
+      "UH1",
+      "US2",
+      "UYS",
+      "UPH",
+      "UK1",
+      "UBT",
+      "UBM",
+      "UPM",
+      "UVI",
+      "AFR"
+    ]
+  },
+  {
+    "name": "[해외선물] 차트",
+    "category": "해외선물",
+    "method": "POST",
+    "url": "/overseas-futureoption/chart",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "o3103",
+      "o3108",
+      "o3117",
+      "o3139"
+    ]
+  },
+  {
+    "name": "[해외선물] 계좌",
+    "category": "해외선물",
+    "method": "POST",
+    "url": "/overseas-futureoption/accno",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "CIDBQ01400",
+      "CIDBQ01500",
+      "CIDBQ01800",
+      "CIDBQ02400",
+      "CIDBQ03000",
+      "CIDBQ05300",
+      "CIDEQ00800"
+    ]
+  },
+  {
+    "name": "[해외선물] 주문",
+    "category": "해외선물",
+    "method": "POST",
+    "url": "/overseas-futureoption/order",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "CIDBT00100",
+      "CIDBT00900",
+      "CIDBT01000"
+    ]
+  },
+  {
+    "name": "[해외선물] 시세",
+    "category": "해외선물",
+    "method": "POST",
+    "url": "/overseas-futureoption/market-data",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "o3101",
+      "o3104",
+      "o3105",
+      "o3106",
+      "o3107",
+      "o3116",
+      "o3121",
+      "o3123",
+      "o3125",
+      "o3126",
+      "o3127",
+      "o3128",
+      "o3136",
+      "o3137"
+    ]
+  },
+  {
+    "name": "[해외선물] 실시간 시세",
+    "category": "해외선물",
+    "method": "POST",
+    "url": "/websocket/overseas-futureoption",
+    "domain": "wss://openapi.ls-sec.co.kr:9443",
+    "trs": [
+      "OVC",
+      "OVH",
+      "WOC",
+      "WOH",
+      "TC1",
+      "TC2",
+      "TC3"
+    ]
+  },
+  {
+    "name": "[해외주식] 시세",
+    "category": "해외주식",
+    "method": "POST",
+    "url": "/overseas-stock/market-data",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "g3101",
+      "g3102",
+      "g3104",
+      "g3106",
+      "g3190"
+    ]
+  },
+  {
+    "name": "[해외주식] 실시간 시세",
+    "category": "해외주식",
+    "method": "POST",
+    "url": "/websocket/overseas-stock",
+    "domain": "wss://openapi.ls-sec.co.kr:9443",
+    "trs": [
+      "AS0",
+      "AS1",
+      "AS2",
+      "AS3",
+      "AS4",
+      "GSH",
+      "GSC"
+    ]
+  },
+  {
+    "name": "[해외주식] 주문",
+    "category": "해외주식",
+    "method": "POST",
+    "url": "/overseas-stock/order",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "COSAT00301",
+      "COSAT00311",
+      "COSMT00300",
+      "COSAT00400"
+    ]
+  },
+  {
+    "name": "[해외주식] 계좌",
+    "category": "해외주식",
+    "method": "POST",
+    "url": "/overseas-stock/accno",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "COSAQ00102",
+      "COSAQ01400",
+      "COSOQ00201",
+      "COSOQ02701"
+    ]
+  },
+  {
+    "name": "[해외주식] 차트",
+    "category": "해외주식",
+    "method": "POST",
+    "url": "/overseas-stock/chart",
+    "domain": "https://openapi.ls-sec.co.kr:8080",
+    "trs": [
+      "g3103",
+      "g3202",
+      "g3203",
+      "g3204"
+    ]
+  }
+]

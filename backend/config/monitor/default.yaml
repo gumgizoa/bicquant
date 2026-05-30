@@ -1,0 +1,9 @@
+database:
+  url: ${oc.env:DATABASE_URL}
+
+deviation:
+  # Deviation ratio = current_price / MA50 * 100
+  # Alert when ratio exceeds this threshold
+  threshold: 130.0
+  # Seconds between polls during market hours (09:00–15:30 KST)
+  poll_interval: 600

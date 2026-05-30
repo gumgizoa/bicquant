@@ -1,0 +1,42 @@
+{
+  "category": "업종",
+  "scraped_at": "20260515_000000",
+  "apis": [
+    {
+      "name": "[업종] 시세",
+      "category": "업종",
+      "basic": {
+        "method": "POST",
+        "url": "/indtp/market-data",
+        "domain_prod": "https://openapi.ls-sec.co.kr:8080",
+        "domain_mock": null,
+        "format": "JSON",
+        "content_type": "application/json; charset=UTF-8",
+        "description": "업종별 시세 조회",
+        "protocol_type": "REST"
+      },
+      "trs": [
+        {
+          "name": "업종현재가",
+          "code": "t1511",
+          "tps_limit": null,
+          "request_header": [
+            {"bodyType": "req_h", "propertyCd": "content-type", "propertyNm": "컨텐츠타입", "propertyType": "A0001", "propertyLength": "100",  "requireYn": "Y", "description": "application/json; charset=utf-8"},
+            {"bodyType": "req_h", "propertyCd": "authorization", "propertyNm": "접근토큰",  "propertyType": "A0001", "propertyLength": "1000", "requireYn": "Y", "description": "Bearer {access_token}"}
+          ],
+          "request_body": [
+            {"bodyType": "req_b", "propertyCd": "t1511InBlock",         "propertyNm": "t1511InBlock", "propertyType": "A0003", "propertyLength": "-", "requireYn": "Y", "description": ""},
+            {"bodyType": "req_b", "propertyCd": "&nbsp;&nbsp;-upcode",  "propertyNm": "업종코드",       "propertyType": "A0001", "propertyLength": "3", "requireYn": "Y", "description": ""}
+          ],
+          "response_header": [],
+          "response_body": [
+            {"bodyType": "res_b", "propertyCd": "t1511OutBlock",            "propertyNm": "t1511OutBlock", "propertyType": "A0003", "propertyLength": "-",    "requireYn": "Y", "description": ""},
+            {"bodyType": "res_b", "propertyCd": "&nbsp;&nbsp;-pricejisu",   "propertyNm": "현재지수",         "propertyType": "A0002", "propertyLength": "10.2", "requireYn": "Y", "description": ""}
+          ],
+          "example_request":  "{\"t1511InBlock\": {\"upcode\": \"001\"}}",
+          "example_response": "{\"t1511OutBlock\": {\"pricejisu\": \"2610.62\"}}"
+        }
+      ]
+    }
+  ]
+}
