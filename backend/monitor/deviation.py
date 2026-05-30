@@ -44,7 +44,7 @@ async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) ->
         {
             "t8419InBlock": {
                 "shcode": upcode,
-                "gubun": "1",  # daily bars
+                "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월)
                 "qrycnt": str(count),
                 "sdate": "",
                 "edate": "99999999",
