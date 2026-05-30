@@ -16,7 +16,7 @@ testpaths = ["tests", "lsapi/tests", "backend/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --strict-markers --tb=short"
+addopts = "-v --strict-markers --tb=short --import-mode=importlib"
 markers = [
     "asyncio: marks tests as async (using pytest-asyncio)",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

@@ -56,7 +56,7 @@ def _parse_blocks(rows: list[dict]) -> dict:
             "t1101InBlock": {
                 "type": "Object",
                 "fields": [
-                    {"name": "shcode", "label": "단축코드", "type": "String",
+                    {"name": "shcode", "label": "short code", "type": "String",
                      "length": "6", "required": True, "description": ""}
                 ]
             }

@@ -79,7 +79,10 @@ async def _fetch_kr_stock(shcode: str) -> str:
         diff_pct = -abs(diff_pct)
 
     return (
-        f"{name} ({shcode}) 🇰🇷\nPrice: ₩{price:,} {arrow} {cs}{diff_pct:.2f}% (₩{cs}{change:,})\nHigh: ₩{high:,} / Low: ₩{low:,}\nVolume: {volume:,}"
+        f"{name} ({shcode}) 🇰🇷\n"
+        f"현재가: ₩{price:,} {arrow} {cs}{diff_pct:.2f}% (₩{cs}{change:,})\n"
+        f"고가: ₩{high:,} / 저가: ₩{low:,}\n"
+        f"거래량: {volume:,}"
     )
 
 
@@ -120,9 +123,9 @@ async def _fetch_us_stock(symbol: str) -> str:
 
             return (
                 f"{name} ({symbol}/{exch_name}) 🇺🇸\n"
-                f"Price: ${price:{fmt}} {arrow} {cs}{rate:.2f}% (${cs}{diff:{fmt}})\n"
-                f"52w High: ${high52:{fmt}} / Low: ${low52:{fmt}}\n"
-                f"Volume: {volume:,}"
+                f"현재가: ${price:{fmt}} {arrow} {cs}{rate:.2f}% (${cs}{diff:{fmt}})\n"
+                f"52주 고가: ${high52:{fmt}} / 저가: ${low52:{fmt}}\n"
+                f"거래량: {volume:,}"
             )
         except Exception:
             continue
@@ -144,10 +147,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _allowed(update):
         return
     await update.message.reply_text(
-        "BicQuant bot이 실행 중이에요.\n\n"
-        "/stock {ticker}  — 주가 조회\n"
-        "/watch {code}   — 관심종목 추가\n"
-        "/unwatch {code} — 관심종목 삭제\n"
+        "BicQuant 봇이 실행 중이에요.\n\n"
+        "/stock {티커}   — 주가 조회\n"
+        "/watch {코드}   — 관심종목 추가\n"
+        "/unwatch {코드} — 관심종목 삭제\n"
         "/watchlist      — 관심종목 목록\n"
         "/ask {질문}     — LLM에 질문"
     )
@@ -158,7 +161,7 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("Usage: /ask {question}")
+        await update.message.reply_text("사용법: /ask {질문}")
         return
 
     user_input = " ".join(context.args)
@@ -175,7 +178,7 @@ async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("Usage: /stock {ticker} (e.g. /stock 005930 or /stock AAPL)")
+        await update.message.reply_text("사용법: /stock {티커} (예: /stock 005930 또는 /stock AAPL)")
         return
 
     ticker = context.args[0].upper()
@@ -195,7 +198,7 @@ async def watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("Usage: /watch {code}  (예: /watch 005930 or /watch AAPL)")
+        await update.message.reply_text("사용법: /watch {코드} (예: /watch 005930 또는 /watch AAPL)")
         return
 
     code = context.args[0].upper()
@@ -213,7 +216,7 @@ async def unwatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("Usage: /unwatch {code}")
+        await update.message.reply_text("사용법: /unwatch {코드}")
         return
 
     code = context.args[0].upper()

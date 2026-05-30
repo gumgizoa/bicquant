@@ -20,17 +20,17 @@ class TRResponse:
     tr_cd: str
     rsp_cd: str
     rsp_msg: str
-    body: dict  # 서버 응답 전체 (OutBlock 포함)
+    body: dict  # full server response, including OutBlocks
     has_next: bool  # tr_cont == "Y"
-    cont_key: str  # 다음 요청의 tr_cont_key
+    cont_key: str  # tr_cont_key to use in the next continuation request
 
     @property
     def ok(self) -> bool:
-        """rsp_cd가 성공을 나타내면 True."""
+        """True if rsp_cd indicates success."""
         return self.rsp_cd in ("00000", "0", "")
 
     def block(self, name: str) -> list | dict | None:
-        """OutBlock 이름으로 안전하게 접근. 없으면 None 반환."""
+        """Access the response body by OutBlock name, returning None if absent."""
         return self.body.get(name)
 
 
@@ -73,7 +73,7 @@ class LSClient:
     # ------------------------------------------------------------------
 
     async def call(self, tr_cd: str, **kwargs: object) -> TRResponse:
-        """단건 요청. kwargs는 첫 번째 InBlock 필드에 매핑.
+        """Single TR request. kwargs are mapped to the first InBlock fields.
 
         Example:
             await client.call("t1101", shcode="005930")
@@ -83,7 +83,7 @@ class LSClient:
         return await self._post(spec, self._build_body(spec, kwargs))
 
     async def paginate(self, tr_cd: str, **kwargs: object) -> AsyncIterator[TRResponse]:
-        """tr_cont 기반 자동 페이지네이션.
+        """Auto-paginate using tr_cont.
 
         Example:
             async for page in client.paginate("t1301", shcode="005930", ...):
@@ -101,7 +101,7 @@ class LSClient:
             cont, cont_key = "Y", resp.cont_key
 
     async def raw(self, tr_cd: str, body: dict) -> TRResponse:
-        """바디를 직접 지정하는 저수준 호출.
+        """Low-level call with an explicitly provided request body.
 
         Example:
             await client.raw("t2106", {

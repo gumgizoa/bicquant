@@ -67,5 +67,5 @@ async def monitor_sidecar() -> None:
                 await notifier.send_telegram(alert)
 
             await ws.subscribe("JIF", "", callback=on_jif)
-            # LSWebSocketClient가 재연결을 자동 처리하므로 여기서 영구 대기
+            # LSWebSocketClient handles reconnection automatically; wait here indefinitely
             await asyncio.Future()

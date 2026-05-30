@@ -34,8 +34,8 @@ class LSWebSocketClient:
         def on_tick(msg: dict) -> None: ...          # sync
         async def on_tick(msg: dict) -> None: ...    # async (both supported)
 
-    연결이 끊기면 reconnect_delay 초 후 자동 재연결하며,
-    기존 구독을 모두 재전송합니다.
+    Automatically reconnects after reconnect_delay seconds if the connection drops,
+    replaying all active subscriptions.
     """
 
     def __init__(
@@ -88,12 +88,12 @@ class LSWebSocketClient:
     # ------------------------------------------------------------------
 
     async def subscribe(self, tr_cd: str, tr_key: str, callback: Handler) -> None:
-        """실시간 데이터 구독.
+        """Subscribe to real-time data.
 
         Args:
-            tr_cd:    실시간 TR 코드 (예: "S3_", "K3_", "FC9").
-            tr_key:   구독 키 (예: 종목코드 "005930").
-            callback: 메시지 수신 시 호출할 함수 (sync/async 모두 가능).
+            tr_cd:    Real-time TR code (e.g. "S3_", "K3_", "FC9").
+            tr_key:   Subscription key (e.g. stock code "005930").
+            callback: Handler called on each incoming message (sync or async).
         """
         if not self._conn:
             await self.connect()
@@ -106,7 +106,7 @@ class LSWebSocketClient:
         self._handlers.setdefault(tr_cd, {})[tr_key] = callback
 
     async def unsubscribe(self, tr_cd: str, tr_key: str) -> None:
-        """구독 해제."""
+        """Unsubscribe from real-time data."""
         if self._conn:
             await self._send(
                 {
@@ -117,7 +117,7 @@ class LSWebSocketClient:
         self._handlers.get(tr_cd, {}).pop(tr_key, None)
 
     def on_default(self, callback: Handler) -> None:
-        """tr_cd/tr_key에 매칭되는 핸들러가 없을 때 호출할 기본 핸들러."""
+        """Set a fallback handler called when no tr_cd/tr_key handler matches."""
         self._default_handler = callback
 
     # ------------------------------------------------------------------
@@ -134,7 +134,7 @@ class LSWebSocketClient:
         await self._conn.send(json.dumps(msg))
 
     async def _reconnect(self) -> None:
-        """재연결 후 기존 구독 전체 재전송."""
+        """Reconnect and replay all active subscriptions."""
         with contextlib.suppress(Exception):
             await self._conn.close()
         token = await self._tokens.get()

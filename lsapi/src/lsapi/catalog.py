@@ -20,7 +20,7 @@ _SPECS_DIR = Path(__file__).parent / "specs"
 @dataclass(frozen=True)
 class FieldSpec:
     name: str
-    label: str  # 한글명
+    label: str  # Korean display name
     type: str  # "String" | "Int" | "Object" | "Array"
     length: str | None
     required: bool
@@ -53,7 +53,7 @@ class TRSpec:
         return self.domain.startswith("wss://")
 
     def first_in_block(self) -> BlockSpec | None:
-        """첫 번째 Object 타입 InBlock (call() 바디 매핑용)."""
+        """Return the first Object-type InBlock, used for call() body mapping."""
         for b in self.in_blocks:
             if b.type == "Object":
                 return b
@@ -113,12 +113,12 @@ class Catalog:
         return self._catalog
 
     def search(self, keyword: str) -> list[TRSpec]:
-        """TR 코드 또는 이름에 keyword가 포함된 TR 목록 반환."""
+        """Return TRs whose code or name contains keyword."""
         kw = keyword.lower()
         return [self.tr(code) for code, meta in self._index.items() if kw in code.lower() or kw in meta.get("name", "").lower()]
 
     def find_by_group(self, keyword: str) -> list[TRSpec]:
-        """그룹명 또는 카테고리에 keyword가 포함된 TR 목록 반환."""
+        """Return TRs whose group name or category contains keyword."""
         kw = keyword.lower()
         return [self.tr(code) for code, meta in self._index.items() if kw in meta.get("group", "").lower() or kw in meta.get("category", "").lower()]
 
@@ -152,7 +152,7 @@ def default_catalog() -> Catalog:
 
 
 class _LazyTopicsDict:
-    """카테고리별 실시간 TR 코드 목록. 첫 접근 시 catalog를 로드."""
+    """Real-time TR codes grouped by category. Loads the catalog on first access."""
 
     def __init__(self) -> None:
         self._data: dict[str, list[str]] | None = None
@@ -191,14 +191,15 @@ REALTIME_TOPICS: dict[str, list[str]] = _LazyTopicsDict()  # type: ignore[assign
 
 
 def list_topics(category: str | None = None) -> list[TRSpec]:
-    """실시간 TR 목록 반환.
+    """Return all real-time TRs, optionally filtered by group keyword.
 
     Args:
-        category: 그룹명 키워드로 필터 (예: "주식", "선물"). None이면 전체 반환.
+        category: Group name keyword to filter by (e.g. "주식", "선물").
+            Pass None to return all real-time TRs.
 
     Example:
-        list_topics()             # 모든 실시간 TR
-        list_topics("주식")       # 주식 관련 실시간 TR만
+        list_topics()             # all real-time TRs
+        list_topics("주식")       # stock-related real-time TRs only
     """
     cat = default_catalog()
     topics = [cat.tr(code) for code in cat.codes() if cat.tr(code).is_realtime]
