@@ -28,7 +28,7 @@ _UPCODE = {"kospi": "001", "kosdaq": "301"}
 async def _fetch_index_snapshot(client: LSClient, upcode: str) -> dict:
     """Fetch current index level and daily change for context."""
     try:
-        resp = await client.raw("t1511", {"t1511InBlock": {"upcode": upcode}})
+        resp = await client.call("t1511", {"t1511InBlock": {"upcode": upcode}})
         block = resp.block("t1511OutBlock") or {}
         current = float(block.get("pricejisu", 0))
         change_pct = float(block.get("diffjisu", 0))

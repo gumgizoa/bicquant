@@ -73,13 +73,19 @@ def _get_t1101_changes(changes_by_type):
 
 def test_field_added(changes_by_type):
     t1101_changes = _get_t1101_changes(changes_by_type)
-    added = [ch for ch in t1101_changes if ch["type"] == "field_added" and ch["section"] == "request_body" and ch["propertyCd"] == "-gubun"]
+    added = [
+        ch for ch in t1101_changes if ch["type"] == "field_added" and ch["section"] == "request_body" and ch["propertyCd"] == "&nbsp;&nbsp;-gubun"
+    ]
     assert added
 
 
 def test_field_removed(changes_by_type):
     t1101_changes = _get_t1101_changes(changes_by_type)
-    removed = [ch for ch in t1101_changes if ch["type"] == "field_removed" and ch["section"] == "response_body" and ch["propertyCd"] == "-pricejisu"]
+    removed = [
+        ch
+        for ch in t1101_changes
+        if ch["type"] == "field_removed" and ch["section"] == "response_body" and ch["propertyCd"] == "&nbsp;&nbsp;-pricejisu"
+    ]
     assert removed
 
 

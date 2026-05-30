@@ -39,7 +39,7 @@ def _is_market_hours() -> bool:
 
 
 async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) -> list[float]:
-    resp = await client.raw(
+    resp = await client.call(
         "t8419",
         {
             "t8419InBlock": {
@@ -57,7 +57,7 @@ async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) ->
 
 
 async def _fetch_stock_closes(client: LSClient, shcode: str, count: int = 60) -> list[float]:
-    resp = await client.raw(
+    resp = await client.call(
         "t8451",
         {
             "t8451InBlock": {

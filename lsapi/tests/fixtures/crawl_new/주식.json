@@ -12,27 +12,29 @@
         "domain_mock": null,
         "format": "JSON",
         "content_type": "application/json; charset=UTF-8",
-        "description": "주식 현재가 및 호가 조회 (업데이트)"
+        "description": "주식 현재가 및 호가 조회 (업데이트)",
+        "protocol_type": "REST"
       },
       "trs": [
         {
           "name": "주식현재가",
           "code": "t1101",
+          "tps_limit": null,
           "request_header": [
             {"bodyType": "req_h", "propertyCd": "content-type", "propertyNm": "컨텐츠타입", "propertyType": "A0001", "propertyLength": "100",  "requireYn": "Y", "description": "application/json; charset=utf-8"},
             {"bodyType": "req_h", "propertyCd": "authorization", "propertyNm": "접근토큰",  "propertyType": "A0001", "propertyLength": "1000", "requireYn": "Y", "description": "Bearer {access_token}"}
           ],
           "request_body": [
-            {"bodyType": "req_b", "propertyCd": "t1101InBlock", "propertyNm": "t1101InBlock", "propertyType": "A0003", "propertyLength": "-", "requireYn": "Y", "description": ""},
-            {"bodyType": "req_b", "propertyCd": "-shcode",      "propertyNm": "단축코드",       "propertyType": "A0001", "propertyLength": "6", "requireYn": "Y", "description": "6자리 종목코드"},
-            {"bodyType": "req_b", "propertyCd": "-gubun",       "propertyNm": "구분",           "propertyType": "A0001", "propertyLength": "1", "requireYn": "N", "description": "1:장중 2:장후"}
+            {"bodyType": "req_b", "propertyCd": "t1101InBlock",         "propertyNm": "t1101InBlock", "propertyType": "A0003", "propertyLength": "-", "requireYn": "Y", "description": ""},
+            {"bodyType": "req_b", "propertyCd": "&nbsp;&nbsp;-shcode",  "propertyNm": "단축코드",       "propertyType": "A0001", "propertyLength": "6", "requireYn": "Y", "description": "6자리 종목코드"},
+            {"bodyType": "req_b", "propertyCd": "&nbsp;&nbsp;-gubun",   "propertyNm": "구분",           "propertyType": "A0001", "propertyLength": "1", "requireYn": "N", "description": "1:장중 2:장후"}
           ],
           "response_header": [
             {"bodyType": "res_h", "propertyCd": "content-type", "propertyNm": "컨텐츠타입", "propertyType": "A0001", "propertyLength": "100", "requireYn": "Y", "description": "application/json; charset=utf-8"}
           ],
           "response_body": [
-            {"bodyType": "res_b", "propertyCd": "t1101OutBlock", "propertyNm": "t1101OutBlock", "propertyType": "A0003", "propertyLength": "-",  "requireYn": "Y", "description": ""},
-            {"bodyType": "res_b", "propertyCd": "-price",        "propertyNm": "현재가",          "propertyType": "A0002", "propertyLength": "10", "requireYn": "Y", "description": "현재 주가 (단위: 원)"}
+            {"bodyType": "res_b", "propertyCd": "t1101OutBlock",        "propertyNm": "t1101OutBlock", "propertyType": "A0003", "propertyLength": "-",  "requireYn": "Y", "description": ""},
+            {"bodyType": "res_b", "propertyCd": "&nbsp;&nbsp;-price",   "propertyNm": "현재가",          "propertyType": "A0002", "propertyLength": "10", "requireYn": "Y", "description": "현재 주가 (단위: 원)"}
           ],
           "example_request":  "{\"t1101InBlock\": {\"shcode\": \"005930\", \"gubun\": \"1\"}}",
           "example_response": "{\"t1101OutBlock\": {\"price\": 70000}}"
@@ -40,6 +42,7 @@
         {
           "name": "주식체결",
           "code": "t1102",
+          "tps_limit": null,
           "request_header": [
             {"bodyType": "req_h", "propertyCd": "content-type", "propertyNm": "컨텐츠타입", "propertyType": "A0001", "propertyLength": "100", "requireYn": "Y", "description": "application/json; charset=utf-8"}
           ],
@@ -63,7 +66,8 @@
         "domain_mock": null,
         "format": "JSON",
         "content_type": "application/json; charset=UTF-8",
-        "description": "신규 기능 API"
+        "description": "신규 기능 API",
+        "protocol_type": "REST"
       },
       "trs": []
     }

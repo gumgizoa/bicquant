@@ -90,7 +90,7 @@ async def _fetch_us_stock(symbol: str) -> str:
     client = _get_ls_client()
     for exchcd in ("82", "81"):  # 82=NASDAQ, 81=NYSE/AMEX
         try:
-            resp = await client.raw(
+            resp = await client.call(
                 "g3101",
                 {
                     "g3101InBlock": {
@@ -129,7 +129,7 @@ async def _fetch_us_stock(symbol: str) -> str:
             )
         except Exception:
             continue
-    raise ValueError(f"'{symbol}' 데이터를 가져올 수 없습니다 (미국 장중에만 조회 가능)")
+    raise ValueError(f"'{symbol}' 데이터를 가져올 수 없습니다.")
 
 
 async def _resolve_name(code: str) -> str | None:

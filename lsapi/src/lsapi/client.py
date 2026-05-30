@@ -72,15 +72,32 @@ class LSClient:
     # Public API
     # ------------------------------------------------------------------
 
-    async def call(self, tr_cd: str, **kwargs: object) -> TRResponse:
-        """Single TR request. kwargs are mapped to the first InBlock fields.
+    async def call(self, tr_cd: str, body: dict | None = None, **kwargs: object) -> TRResponse:
+        """Single TR request.
 
-        Example:
+        Pass either a full ``body`` dict (for multi-InBlock TRs or explicit
+        control) or keyword arguments that are mapped to the first InBlock.
+
+        Args:
+            tr_cd: TR code (e.g., 't1101').
+            body: Full request body mapping InBlock names to their fields.
+                Cannot be combined with kwargs.
+            **kwargs: Mapped to the first InBlock's fields.
+
+        Example (kwargs form):
             await client.call("t1101", shcode="005930")
+
+        Example (body form):
+            await client.call("t2106", {
+                "t2106InBlock": {"code": "101R3", "nrec": 2},
+                "t2106InBlock1": [{"indx": 0, ...}, {"indx": 1, ...}],
+            })
         """
         spec = self._catalog.tr(tr_cd)
         _assert_not_realtime(spec)
-        return await self._post(spec, self._build_body(spec, kwargs))
+        if body is None:
+            body = self._build_body(spec, kwargs)
+        return await self._post(spec, body)
 
     async def paginate(self, tr_cd: str, **kwargs: object) -> AsyncIterator[TRResponse]:
         """Auto-paginate using tr_cont.
@@ -99,18 +116,6 @@ class LSClient:
             if not resp.has_next:
                 break
             cont, cont_key = "Y", resp.cont_key
-
-    async def raw(self, tr_cd: str, body: dict) -> TRResponse:
-        """Low-level call with an explicitly provided request body.
-
-        Example:
-            await client.raw("t2106", {
-                "t2106InBlock": {"code": "101R3", "nrec": 2},
-                "t2106InBlock1": [{"indx": 0, ...}, {"indx": 1, ...}],
-            })
-        """
-        spec = self._catalog.tr(tr_cd)
-        return await self._post(spec, body)
 
     # ------------------------------------------------------------------
     # Internals

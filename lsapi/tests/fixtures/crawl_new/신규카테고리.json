@@ -12,7 +12,8 @@
         "domain_mock": null,
         "format": "JSON",
         "content_type": "application/json; charset=UTF-8",
-        "description": "신규 카테고리 조회 API"
+        "description": "신규 카테고리 조회 API",
+        "protocol_type": "REST"
       },
       "trs": []
     }

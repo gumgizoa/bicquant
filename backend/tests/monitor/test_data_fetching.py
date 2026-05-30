@@ -79,9 +79,8 @@ def test_deviation_ratio_above_threshold():
 async def test_fetch_kospi_daily_chart():
     """t8419: KOSPI daily bars — verify shape and numeric closes."""
     async with LSClient(APP_KEY, APP_SECRET) as client:
-        data = await client.request(
+        resp = await client.call(
             "t8419",
-            "/indtp/chart",
             {
                 "t8419InBlock": {
                     "shcode": "001",
@@ -95,7 +94,7 @@ async def test_fetch_kospi_daily_chart():
             },
         )
 
-    bars = data.get("t8419OutBlock1", [])
+    bars = resp.body.get("t8419OutBlock1", [])
     assert len(bars) >= 50, f"Expected >= 50 bars, got {len(bars)}"
 
     closes = [float(b["close"]) for b in bars if b.get("close")]
@@ -109,9 +108,8 @@ async def test_fetch_kospi_daily_chart():
 async def test_fetch_kosdaq_daily_chart():
     """t8419: KOSDAQ daily bars — verify shape and numeric closes."""
     async with LSClient(APP_KEY, APP_SECRET) as client:
-        data = await client.request(
+        resp = await client.call(
             "t8419",
-            "/indtp/chart",
             {
                 "t8419InBlock": {
                     "shcode": "301",
@@ -125,7 +123,7 @@ async def test_fetch_kosdaq_daily_chart():
             },
         )
 
-    bars = data.get("t8419OutBlock1", [])
+    bars = resp.body.get("t8419OutBlock1", [])
     assert len(bars) >= 50, f"Expected >= 50 bars, got {len(bars)}"
 
     closes = [float(b["close"]) for b in bars if b.get("close")]
@@ -138,9 +136,8 @@ async def test_fetch_kosdaq_daily_chart():
 async def test_fetch_samsung_daily_chart():
     """t8451: Samsung Electronics (005930) daily bars."""
     async with LSClient(APP_KEY, APP_SECRET) as client:
-        data = await client.request(
+        resp = await client.call(
             "t8451",
-            "/stock/chart",
             {
                 "t8451InBlock": {
                     "shcode": "005930",
@@ -156,7 +153,7 @@ async def test_fetch_samsung_daily_chart():
             },
         )
 
-    bars = data.get("t8451OutBlock1", [])
+    bars = resp.body.get("t8451OutBlock1", [])
     assert len(bars) >= 50, f"Expected >= 50 bars, got {len(bars)}"
 
     closes = [float(b["close"]) for b in bars if b.get("close")]
@@ -169,13 +166,9 @@ async def test_fetch_samsung_daily_chart():
 async def test_fetch_current_kospi_index():
     """t1511: Current KOSPI index level — verify response fields."""
     async with LSClient(APP_KEY, APP_SECRET) as client:
-        data = await client.request(
-            "t1511",
-            "/indtp/market-data",
-            {"t1511InBlock": {"upcode": "001"}},
-        )
+        resp = await client.call("t1511", {"t1511InBlock": {"upcode": "001"}})
 
-    block = data.get("t1511OutBlock", {})
+    block = resp.body.get("t1511OutBlock", {})
     assert block, "t1511OutBlock must not be empty"
 
     price = float(block.get("pricejisu", 0))
@@ -191,13 +184,9 @@ async def test_fetch_current_kospi_index():
 async def test_fetch_current_kosdaq_index():
     """t1511: Current KOSDAQ index level."""
     async with LSClient(APP_KEY, APP_SECRET) as client:
-        data = await client.request(
-            "t1511",
-            "/indtp/market-data",
-            {"t1511InBlock": {"upcode": "301"}},
-        )
+        resp = await client.call("t1511", {"t1511InBlock": {"upcode": "301"}})
 
-    block = data.get("t1511OutBlock", {})
+    block = resp.body.get("t1511OutBlock", {})
     price = float(block.get("pricejisu", 0))
     assert price > 0, f"Current KOSDAQ index must be positive, got {price}"
 
@@ -210,9 +199,8 @@ async def test_deviation_ratio_computable_from_live_data():
     import numpy as np
 
     async with LSClient(APP_KEY, APP_SECRET) as client:
-        data = await client.request(
+        resp = await client.call(
             "t8419",
-            "/indtp/chart",
             {
                 "t8419InBlock": {
                     "shcode": "001",
@@ -226,7 +214,7 @@ async def test_deviation_ratio_computable_from_live_data():
             },
         )
 
-    bars = data.get("t8419OutBlock1", [])
+    bars = resp.body.get("t8419OutBlock1", [])
     closes = [float(b["close"]) for b in bars if b.get("close")]
 
     assert len(closes) >= 51, "Need at least 51 data points to compute MA50"
