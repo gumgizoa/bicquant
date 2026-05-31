@@ -9,6 +9,8 @@ COPY pyproject.toml uv.lock* ./
 COPY backend/pyproject.toml ./backend/
 COPY lsapi/pyproject.toml ./lsapi/
 COPY lsapi/src/ ./lsapi/src/
+COPY dartapi/pyproject.toml ./dartapi/
+COPY dartapi/src/ ./dartapi/src/
 
 # Install production deps only
 RUN uv sync --frozen --no-dev
@@ -16,6 +18,7 @@ RUN uv sync --frozen --no-dev
 # Copy source
 COPY backend/ ./backend/
 COPY lsapi/ ./lsapi/
+COPY dartapi/ ./dartapi/
 
 WORKDIR /workspace/backend
 
