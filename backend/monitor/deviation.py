@@ -6,7 +6,6 @@ Alerts when ratio >= deviation.threshold (default 130).
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from shared.config import get_config
@@ -15,10 +14,9 @@ from shared.queries import watchlist as watchlist_q
 
 from lsapi import LSClient
 from monitor import notifier
+from monitor.market_hours import is_market_hours, seconds_until_market_open
 
 log = logging.getLogger(__name__)
-
-KST = timezone(timedelta(hours=9))
 
 cfg = get_config("monitor")
 
@@ -28,14 +26,6 @@ _INDICES = [
     ("001", "코스피"),
     ("301", "코스닥"),
 ]
-
-
-def _is_market_hours() -> bool:
-    now = datetime.now(KST)
-    if now.weekday() >= 5:  # Saturday / Sunday
-        return False
-    t = (now.hour, now.minute)
-    return (9, 0) <= t <= (15, 30)
 
 
 async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) -> list[float]:
@@ -106,24 +96,69 @@ async def _evaluate(code: str, name: str, closes: list[float]) -> None:
         await notifier.send_telegram(alert)
 
 
+async def _run_poll(client: LSClient) -> None:
+    """Run one deviation check cycle across indices and watchlist."""
+    for upcode, name in _INDICES:
+        closes = await _fetch_index_closes(client, upcode)
+        await _evaluate(upcode, name, closes)
+
+    for shcode in await watchlist_q.get_active_codes():
+        name = await _fetch_stock_name(client, shcode)
+        closes = await _fetch_stock_closes(client, shcode)
+        await _evaluate(shcode, name, closes)
+
+
+async def _run_eod_summary(client: LSClient) -> None:
+    """Calculate deviation ratios for all tracked items and send a daily summary."""
+    log.info("Running EOD deviation summary.")
+    entries = []
+
+    for upcode, name in _INDICES:
+        closes = await _fetch_index_closes(client, upcode)
+        if len(closes) >= 51:
+            current = closes[-1]
+            ma50 = float(np.mean(closes[-51:-1]))
+            if ma50 > 0:
+                entries.append({"code": upcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
+
+    for shcode in await watchlist_q.get_active_codes():
+        name = await _fetch_stock_name(client, shcode)
+        closes = await _fetch_stock_closes(client, shcode)
+        if len(closes) >= 51:
+            current = closes[-1]
+            ma50 = float(np.mean(closes[-51:-1]))
+            if ma50 > 0:
+                entries.append({"code": shcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
+
+    if not entries:
+        log.warning("EOD summary: no data available.")
+        return
+
+    msg = notifier.format_deviation_summary(entries, cfg.deviation.threshold)
+    await notifier.send_telegram(msg)
+
+
 async def monitor_deviation() -> None:
     async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as client:
+        session_active = False
         while True:
-            if not _is_market_hours():
-                await asyncio.sleep(60)
+            if not is_market_hours():
+                if session_active:
+                    session_active = False
+                    try:
+                        await _run_eod_summary(client)
+                    except Exception as e:
+                        log.error("EOD summary error: %s", e)
+
+                wait = seconds_until_market_open()
+                log.info("Market closed. Waiting %.0fs until next open.", wait)
+                await asyncio.sleep(wait)
                 continue
 
+            session_active = True
             try:
-                for upcode, name in _INDICES:
-                    closes = await _fetch_index_closes(client, upcode)
-                    await _evaluate(upcode, name, closes)
-
-                for shcode in await watchlist_q.get_active_codes():
-                    name = await _fetch_stock_name(client, shcode)
-                    closes = await _fetch_stock_closes(client, shcode)
-                    await _evaluate(shcode, name, closes)
-
+                await _run_poll(client)
             except Exception as e:
-                log.error(f"Deviation poll error: {e}")
+                log.error("Deviation poll error: %s", e)
 
             await asyncio.sleep(cfg.deviation.poll_interval)

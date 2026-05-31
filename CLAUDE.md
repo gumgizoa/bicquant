@@ -97,7 +97,9 @@ All comments must be in English. Proper nouns that have no natural English equiv
 
 ## 6. Testing
 
-**New feature = new tests. No exceptions.**
+**New feature = new tests. Significant logic change = update existing tests. No exceptions.**
+
+When you add a feature or significantly modify existing logic, you must also write or update tests in the same PR/commit. "Significantly modify" includes: changing branching logic, adding new code paths, extracting shared helpers that alter how existing modules behave, or changing function signatures. Refactors that preserve observable behavior (rename, reorder) do not require new tests, but must not break existing ones.
 
 ### Where tests live
 
