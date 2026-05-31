@@ -82,3 +82,23 @@ def format_deviation_alert(code: str, name: str, current: float, ma50: float, ra
         f"50일 MA: {ma50:,.2f}\n"
         f"이격도: <b>{ratio:.1f}</b> (기준: {cfg.deviation.threshold:.0f})"
     )
+
+
+def format_deviation_summary(entries: list[dict], threshold: float) -> str:
+    """Format an end-of-day deviation ratio summary for all tracked items.
+
+    Args:
+        entries: List of dicts with keys: code, name, current, ma50, ratio.
+        threshold: Alert threshold; entries at or above this are highlighted.
+
+    Returns:
+        HTML-formatted Telegram message.
+    """
+    lines = ["📊 <b>이격도 일일 요약 (장 마감)</b>", ""]
+    for e in entries:
+        ratio = e["ratio"]
+        if ratio >= threshold:
+            lines.append(f"⚠️ {e['name']} ({e['code']}): <b>{ratio:.1f}</b>")
+        else:
+            lines.append(f"• {e['name']} ({e['code']}): {ratio:.1f}")
+    return "\n".join(lines)

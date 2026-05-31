@@ -68,9 +68,20 @@ class LSWebSocketClient:
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        token = await self._tokens.get()
-        self._conn = await websockets.connect(_WS_URL)
-        await self._login(token)
+        while True:
+            try:
+                token = await self._tokens.get()
+                self._conn = await websockets.connect(_WS_URL)
+                await self._login(token)
+                break
+            except websockets.exceptions.ConnectionClosedOK:
+                if self._stopping:
+                    return
+                _log.warning(
+                    "Server closed connection during login, retrying in %.1fs...",
+                    self._reconnect_delay,
+                )
+                await asyncio.sleep(self._reconnect_delay)
         self._stopping = False
         self._recv_task = asyncio.create_task(self._recv_loop())
 
