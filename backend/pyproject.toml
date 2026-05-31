@@ -27,6 +27,7 @@ dependencies = [
     "openpyxl",
     "paramiko",
     "lsapi",
+    "dartapi",
 ]
 
 [dependency-groups]
@@ -39,3 +40,4 @@ dev = [
 
 [tool.uv.sources]
 lsapi = { workspace = true }
+dartapi = { workspace = true }
