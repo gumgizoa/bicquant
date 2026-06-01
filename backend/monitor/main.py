@@ -10,6 +10,7 @@ import logging
 
 from shared import db
 
+from monitor.dart_monitor import monitor_dart_disclosures
 from monitor.deviation import monitor_deviation
 from monitor.sidecar import monitor_sidecar
 
@@ -27,6 +28,7 @@ async def main() -> None:
         async with asyncio.TaskGroup() as tg:
             tg.create_task(monitor_sidecar(), name="sidecar")
             tg.create_task(monitor_deviation(), name="deviation")
+            tg.create_task(monitor_dart_disclosures(), name="dart")
     finally:
         await db.close()
 
