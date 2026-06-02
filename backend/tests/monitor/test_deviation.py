@@ -1,8 +1,9 @@
 """Unit tests for monitor.deviation — _evaluate, _run_eod_summary, and format_deviation_summary."""
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from monitor.deviation import _evaluate, _run_eod_summary
+from monitor.deviation import _evaluate, _run_eod_summary, monitor_deviation
 from monitor.notifier import format_deviation_summary
 
 
@@ -168,6 +169,126 @@ async def test_run_eod_summary_entry_ratio_correct() -> None:
     assert abs(index_entry["ma50"] - 50_000.0) < 1
 
 
+async def test_run_eod_summary_passes_default_label_to_formatter() -> None:
+    """Default call must forward label='장 마감' to format_deviation_summary."""
+    closes = _closes(105.0)
+    mock_client = AsyncMock()
+
+    with (
+        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=closes),
+        patch("monitor.deviation._fetch_stock_closes", new_callable=AsyncMock, return_value=[]),
+        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=[]),
+        patch("monitor.deviation.notifier.format_deviation_summary", return_value="msg") as mock_fmt,
+        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock),
+    ):
+        await _run_eod_summary(mock_client)
+
+    assert mock_fmt.call_args.kwargs["label"] == "장 마감"
+
+
+async def test_run_eod_summary_passes_custom_label_to_formatter() -> None:
+    """Call with label='장 시작' must propagate to format_deviation_summary."""
+    closes = _closes(105.0)
+    mock_client = AsyncMock()
+
+    with (
+        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=closes),
+        patch("monitor.deviation._fetch_stock_closes", new_callable=AsyncMock, return_value=[]),
+        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=[]),
+        patch("monitor.deviation.notifier.format_deviation_summary", return_value="msg") as mock_fmt,
+        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock),
+    ):
+        await _run_eod_summary(mock_client, label="장 시작")
+
+    assert mock_fmt.call_args.kwargs["label"] == "장 시작"
+
+
+# ---------------------------------------------------------------------------
+# monitor_deviation — morning summary loop behavior
+# ---------------------------------------------------------------------------
+
+
+async def test_monitor_deviation_morning_summary_fires_once_at_open() -> None:
+    """Morning summary runs once when market opens; not on subsequent polls."""
+    iterations = 0
+
+    def fake_market_hours():
+        nonlocal iterations
+        iterations += 1
+        if iterations <= 3:
+            return True
+        raise asyncio.CancelledError()
+
+    mock_client = AsyncMock()
+    mock_ls_instance = MagicMock()
+    mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
+
+    mock_cfg = MagicMock()
+    mock_cfg.ls_api.app_key = "test_key"
+    mock_cfg.ls_api.app_secret = "test_secret"
+
+    with (
+        patch("monitor.deviation.cfg", mock_cfg),
+        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
+        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
+        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        try:
+            await monitor_deviation()
+        except asyncio.CancelledError:
+            pass
+
+    # First call: label="장 시작" (morning); no further summary calls during polling
+    assert mock_summary.await_count == 1
+    assert mock_summary.call_args.kwargs["label"] == "장 시작"
+
+
+async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
+    """After market closes (EOD summary), morning summary fires again on next open."""
+    sequence = [True, False, False, True]
+    idx = 0
+
+    def fake_market_hours():
+        nonlocal idx
+        if idx >= len(sequence):
+            raise asyncio.CancelledError()
+        val = sequence[idx]
+        idx += 1
+        return val
+
+    mock_client = AsyncMock()
+    mock_ls_instance = MagicMock()
+    mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
+
+    mock_cfg = MagicMock()
+    mock_cfg.ls_api.app_key = "test_key"
+    mock_cfg.ls_api.app_secret = "test_secret"
+
+    with (
+        patch("monitor.deviation.cfg", mock_cfg),
+        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
+        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
+        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation.seconds_until_market_open", return_value=0.0),
+        patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        try:
+            await monitor_deviation()
+        except asyncio.CancelledError:
+            pass
+
+    # Calls: "장 시작" on first open, "장 마감" on close, "장 시작" on second open
+    assert mock_summary.await_count == 3
+    # EOD call uses default (no kwarg), morning calls pass label explicitly
+    labels = [c.kwargs.get("label", "장 마감") for c in mock_summary.await_args_list]
+    assert labels == ["장 시작", "장 마감", "장 시작"]
+
+
 # ---------------------------------------------------------------------------
 # format_deviation_summary
 # ---------------------------------------------------------------------------
@@ -207,3 +328,14 @@ def test_format_deviation_summary_shows_all_entries() -> None:
     msg = format_deviation_summary(entries, threshold=130.0)
     assert "코스피" in msg
     assert "삼성전자" in msg
+
+
+def test_format_deviation_summary_default_label_is_eod() -> None:
+    msg = format_deviation_summary([], threshold=130.0)
+    assert "장 마감" in msg
+
+
+def test_format_deviation_summary_custom_label() -> None:
+    msg = format_deviation_summary([], threshold=130.0, label="장 시작")
+    assert "장 시작" in msg
+    assert "장 마감" not in msg

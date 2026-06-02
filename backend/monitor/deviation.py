@@ -108,9 +108,14 @@ async def _run_poll(client: LSClient) -> None:
         await _evaluate(shcode, name, closes)
 
 
-async def _run_eod_summary(client: LSClient) -> None:
-    """Calculate deviation ratios for all tracked items and send a daily summary."""
-    log.info("Running EOD deviation summary.")
+async def _run_eod_summary(client: LSClient, label: str = "장 마감") -> None:
+    """Calculate deviation ratios for all tracked items and send a summary.
+
+    Args:
+        client: Active LS API client.
+        label: Context label shown in the summary header ('장 마감' or '장 시작').
+    """
+    log.info("Running deviation summary (%s).", label)
     entries = []
 
     for upcode, name in _INDICES:
@@ -131,20 +136,22 @@ async def _run_eod_summary(client: LSClient) -> None:
                 entries.append({"code": shcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
 
     if not entries:
-        log.warning("EOD summary: no data available.")
+        log.warning("Deviation summary (%s): no data available.", label)
         return
 
-    msg = notifier.format_deviation_summary(entries, cfg.deviation.threshold)
+    msg = notifier.format_deviation_summary(entries, cfg.deviation.threshold, label=label)
     await notifier.send_telegram(msg)
 
 
 async def monitor_deviation() -> None:
     async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as client:
         session_active = False
+        morning_summary_sent = False
         while True:
             if not is_market_hours():
                 if session_active:
                     session_active = False
+                    morning_summary_sent = False
                     try:
                         await _run_eod_summary(client)
                     except Exception as e:
@@ -156,6 +163,14 @@ async def monitor_deviation() -> None:
                 continue
 
             session_active = True
+
+            if not morning_summary_sent:
+                try:
+                    await _run_eod_summary(client, label="장 시작")
+                except Exception as e:
+                    log.error("Morning summary error: %s", e)
+                morning_summary_sent = True
+
             try:
                 await _run_poll(client)
             except Exception as e:

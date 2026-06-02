@@ -74,6 +74,56 @@ def format_circuit_breaker_alert(market: str, event_type: str, index_info: dict)
     )
 
 
+def format_dart_daily_count(date_str: str, total: int, by_cls: dict) -> str:
+    """Format the morning DART disclosure count summary.
+
+    Args:
+        date_str: Date string in YYYYMMDD format.
+        total: Total listed-company disclosure count for the day.
+        by_cls: Disclosure count per corp_cls (e.g. {'유': 8, '코': 7}).
+
+    Returns:
+        HTML-formatted Telegram message.
+    """
+    date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+    cls_label = {"유": "유가증권", "코": "코스닥"}
+    lines = [
+        "📋 <b>오늘 공시 현황 (장 시작)</b>",
+        "",
+        f"날짜: {date_fmt}",
+        f"상장사 공시: {total}건",
+    ]
+    for cls in sorted(by_cls):
+        label = cls_label.get(cls, cls)
+        lines.append(f"  • {label}: {by_cls[cls]}건")
+    return "\n".join(lines)
+
+
+def format_dart_new_disclosure(d: dict) -> str:
+    """Format a single new DART disclosure notification.
+
+    Args:
+        d: Disclosure record from list_dart_disclosures_by_date.
+
+    Returns:
+        HTML-formatted Telegram message.
+    """
+    cls_label = {"유": "유가증권", "코": "코스닥"}
+    corp_cls = d.get("corp_cls", "")
+    cls_kr = cls_label.get(corp_cls, corp_cls)
+    rcept_dt = d.get("rcept_dt")
+    time_str = rcept_dt.strftime("%H:%M") if hasattr(rcept_dt, "strftime") else ""
+    return "\n".join(
+        [
+            "📋 <b>새 공시</b>",
+            "",
+            f"[{cls_kr}] {d.get('corp_name', '')}",
+            f"{d.get('report_nm', '')}",
+            f"제출: {d.get('flr_nm', '')} | {time_str}",
+        ]
+    )
+
+
 def format_deviation_alert(code: str, name: str, current: float, ma50: float, ratio: float) -> str:
     return (
         f"📊 <b>이격도 알림</b>\n\n"
@@ -84,17 +134,18 @@ def format_deviation_alert(code: str, name: str, current: float, ma50: float, ra
     )
 
 
-def format_deviation_summary(entries: list[dict], threshold: float) -> str:
-    """Format an end-of-day deviation ratio summary for all tracked items.
+def format_deviation_summary(entries: list[dict], threshold: float, label: str = "장 마감") -> str:
+    """Format a deviation ratio summary for all tracked items.
 
     Args:
         entries: List of dicts with keys: code, name, current, ma50, ratio.
         threshold: Alert threshold; entries at or above this are highlighted.
+        label: Context label shown in the header (e.g. '장 마감', '장 시작').
 
     Returns:
         HTML-formatted Telegram message.
     """
-    lines = ["📊 <b>이격도 일일 요약 (장 마감)</b>", ""]
+    lines = [f"📊 <b>이격도 일일 요약 ({label})</b>", ""]
     for e in entries:
         ratio = e["ratio"]
         if ratio >= threshold:
