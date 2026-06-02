@@ -224,7 +224,12 @@ async def test_monitor_deviation_morning_summary_fires_once_at_open() -> None:
     mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
     mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
 
+    mock_cfg = MagicMock()
+    mock_cfg.ls_api.app_key = "test_key"
+    mock_cfg.ls_api.app_secret = "test_secret"
+
     with (
+        patch("monitor.deviation.cfg", mock_cfg),
         patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
         patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
@@ -259,7 +264,12 @@ async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
     mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
     mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
 
+    mock_cfg = MagicMock()
+    mock_cfg.ls_api.app_key = "test_key"
+    mock_cfg.ls_api.app_secret = "test_secret"
+
     with (
+        patch("monitor.deviation.cfg", mock_cfg),
         patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
         patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
