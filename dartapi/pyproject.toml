@@ -4,14 +4,18 @@ version = "0.1.0"
 requires-python = ">=3.12"
 description = "DART OpenAPI Python client"
 dependencies = [
-    "requests",
+    "httpx",
     "pandas",
     "lxml",
     "curl_cffi",
     "beautifulsoup4",
     "markdownify",
     "python-dotenv",
+    "mcp",
 ]
+
+[project.scripts]
+dartapi-mcp = "dartapi.server:main"
 
 [build-system]
 requires = ["setuptools>=68"]

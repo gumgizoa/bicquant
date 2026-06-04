@@ -7,16 +7,17 @@ import zipfile
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
 
+import httpx
 import pandas as pd
-import requests
 
+from dartapi._http import raise_for_dart_status
 from dartapi.exceptions import APIError
 
 from .dart_parser import parse_dart_to_text
 
 
 def list(
-    api_key: str,
+    client: httpx.Client,
     corp_code: str = "",
     start: Optional[Union[str, datetime]] = None,
     end: Optional[Union[str, datetime]] = None,
@@ -35,7 +36,7 @@ def list(
     모든 페이지를 자동으로 가져와서 반환합니다.
 
     Args:
-        api_key: API 인증키. 발급받은 인증키(40자리). 필수 파라미터입니다.
+        client: crtfc_key가 설정된 httpx.Client (DartServerState.get_client() 참조).
         corp_code: 고유번호. 공시대상회사의 고유번호(8자리. 예: 00120182). 선택 파라미터입니다.
                   고유번호가 없는 경우 검색기간은 3개월로 제한됩니다.
         start: 시작일. 검색시작 접수일자(YYYYMMDD 형식 문자열 또는 datetime 객체). 선택 파라미터입니다.
@@ -133,38 +134,8 @@ def list(
                   기본값: "desc"
         page_no: 페이지 번호. 선택 파라미터입니다. 기본값: 1
         page_count: 페이지 별 건수. 선택 파라미터입니다. 기본값: 100, 최대값: 100
-
-    Returns:
-        dict: 공시정보를 담은 딕셔너리. 다음 구조를 가집니다:
-            - status (str): 에러 및 정보 코드
-            - message (str): 에러 및 정보 메시지
-            - page_no (str): 페이지 번호
-            - page_count (str): 페이지 별 건수
-            - total_count (str): 총 건수
-            - total_page (str): 총 페이지 수
-            - list (list): 공시정보 배열. 각 항목은 다음 필드를 포함:
-                - corp_cls (str): 법인구분 (Y:유가, K:코스닥, N:코넥스, E:기타)
-                - corp_name (str): 종목명(법인명) (공시대상회사의 종목명(상장사) 또는 법인명(기타법인))
-                - corp_code (str): 고유번호 (공시대상회사의 고유번호 8자리)
-                - stock_code (str): 종목코드 (상장회사의 종목코드 6자리)
-                - report_nm (str): 보고서명 (공시구분+보고서명+기타정보)
-                - rcept_no (str): 접수번호(14자리). 접수번호(rcept_no)를 이용하여 공시뷰어에 접근할 수 있습니다.
-                - flr_nm (str): 공시 제출인명
-                - rcept_dt (str): 접수일자 (공시 접수일자 YYYYMMDD)
-                - rm (str): 비고. 조합된 문자로 각각은 아래와 같은 의미가 있음:
-                    - 유: 본 공시사항은 한국거래소 유가증권시장본부 소관임
-                    - 코: 본 공시사항은 한국거래소 코스닥시장본부 소관임
-                    - 채: 본 문서는 한국거래소 채권상장법인 공시사항임
-                    - 넥: 본 문서는 한국거래소 코넥스시장 소관임
-                    - 공: 본 공시사항은 공정거래위원회 소관임
-                    - 연: 본 보고서는 연결부분을 포함한 것임
-                    - 정: 본 보고서 제출 후 정정신고가 있으니 관련 보고서를 참조하시기 바람
-                    - 철: 본 보고서는 철회(간주)되었으니 관련 철회신고서(철회간주안내)를 참고하시기 바람
     """
     # 파라미터 검증
-    if not api_key or len(api_key) != 40:
-        raise ValueError("api_key는 40자리 인증키여야 합니다.")
-
     if corp_code and len(corp_code) != 8:
         raise ValueError("corp_code는 8자리 고유번호여야 합니다.")
 
@@ -211,7 +182,6 @@ def list(
 
     url = "https://opendart.fss.or.kr/api/list.json"
     params = {
-        "crtfc_key": api_key,
         "corp_code": corp_code,
         "bgn_de": start_dt.strftime("%Y%m%d"),
         "end_de": end_dt.strftime("%Y%m%d"),
@@ -231,34 +201,13 @@ def list(
 
     try:
         # 첫 페이지 요청
-        response = requests.get(url, params=params)
+        response = client.get(url, params=params)
         response.raise_for_status()
 
         data = response.json()
 
         # 에러 처리
-        if "status" in data:
-            status = data.get("status", "")
-            message = data.get("message", "")
-
-            error_codes = {
-                "010": "등록되지 않은 키입니다",
-                "011": "사용할 수 없는 키입니다. 오픈API에 등록되었으나, 일시적으로 사용 중지된 키를 통하여 검색하는 경우 발생합니다",
-                "012": "접근할 수 없는 IP입니다",
-                "013": "조회된 데이타가 없습니다",
-                "014": "파일이 존재하지 않습니다",
-                "020": "요청 제한을 초과하였습니다. 일반적으로는 20,000건 이상의 요청에 대하여 이 에러 메시지가 발생되나, 요청 제한이 다르게 설정된 경우에는 이에 준하여 발생됩니다",
-                "021": "조회 가능한 회사 개수가 초과하였습니다 (최대 100건)",
-                "100": "필드의 부적절한 값입니다. 필드 설명에 없는 값을 사용한 경우에 발생하는 메시지입니다",
-                "101": "부적절한 접근입니다",
-                "800": "시스템 점검으로 인한 서비스가 중지 중입니다",
-                "900": "정의되지 않은 오류가 발생하였습니다",
-                "901": "사용자 계정의 개인정보 보유기간이 만료되어 사용할 수 없는 키입니다. 관리자 이메일(opendart@fss.or.kr)로 문의하시기 바랍니다",
-            }
-
-            if status != "000":
-                error_message = error_codes.get(status, message)
-                raise APIError(status, error_message)
+        raise_for_dart_status(data)
 
         # 모든 페이지 가져오기
         if "list" not in data:
@@ -271,30 +220,12 @@ def list(
         # 나머지 페이지 가져오기
         for page in range(2, total_page + 1):
             params["page_no"] = page
-            response = requests.get(url, params=params)
+            response = client.get(url, params=params)
             response.raise_for_status()
 
             page_data = response.json()
 
-            if "status" in page_data and page_data["status"] != "000":
-                status = page_data.get("status", "")
-                message = page_data.get("message", "")
-                error_codes = {
-                    "010": "등록되지 않은 키입니다",
-                    "011": "사용할 수 없는 키입니다. 오픈API에 등록되었으나, 일시적으로 사용 중지된 키를 통하여 검색하는 경우 발생합니다",
-                    "012": "접근할 수 없는 IP입니다",
-                    "013": "조회된 데이타가 없습니다",
-                    "014": "파일이 존재하지 않습니다",
-                    "020": "요청 제한을 초과하였습니다. 일반적으로는 20,000건 이상의 요청에 대하여 이 에러 메시지가 발생되나, 요청 제한이 다르게 설정된 경우에는 이에 준하여 발생됩니다",
-                    "021": "조회 가능한 회사 개수가 초과하였습니다 (최대 100건)",
-                    "100": "필드의 부적절한 값입니다. 필드 설명에 없는 값을 사용한 경우에 발생하는 메시지입니다",
-                    "101": "부적절한 접근입니다",
-                    "800": "시스템 점검으로 인한 서비스가 중지 중입니다",
-                    "900": "정의되지 않은 오류가 발생하였습니다",
-                    "901": "사용자 계정의 개인정보 보유기간이 만료되어 사용할 수 없는 키입니다. 관리자 이메일(opendart@fss.or.kr)로 문의하시기 바랍니다",
-                }
-                error_message = error_codes.get(status, message)
-                raise APIError(status, error_message)
+            raise_for_dart_status(page_data)
 
             if "list" in page_data:
                 all_list.extend(page_data["list"])
@@ -304,7 +235,7 @@ def list(
 
         return data
 
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         raise APIError("CONNECTION_ERROR", f"API 호출 중 네트워크 오류가 발생했습니다: {str(e)}")
     except Exception as e:
         if isinstance(e, (ValueError, APIError)):
@@ -312,82 +243,36 @@ def list(
         raise APIError("UNKNOWN_ERROR", f"예상치 못한 오류가 발생했습니다: {str(e)}")
 
 
-def company(api_key: str, corp_code: str) -> Dict[str, Any]:
+def company(client: httpx.Client, corp_code: str) -> Dict[str, Any]:
     """기업개황정보를 조회합니다.
 
     DART에 등록되어있는 기업의 개황정보를 제공합니다.
 
     Args:
-        api_key: API 인증키. 발급받은 인증키(40자리). 필수 파라미터입니다.
+        client: crtfc_key가 설정된 httpx.Client (DartServerState.get_client() 참조).
         corp_code: 고유번호. 공시대상회사의 고유번호(8자리. 예: 00120182). 필수 파라미터입니다.
-
-    Returns:
-        dict: 기업개황정보를 담은 딕셔너리. 다음 구조를 가집니다:
-            - status (str): 에러 및 정보 코드
-            - message (str): 에러 및 정보 메시지
-            - corp_name (str): 정식명칭 (정식회사명칭)
-            - corp_name_eng (str): 영문명칭 (영문정식회사명칭)
-            - stock_name (str): 종목명(상장사) 또는 약식명칭(기타법인)
-            - stock_code (str): 상장회사인 경우 주식의 종목코드 (상장회사의 종목코드 6자리)
-            - ceo_nm (str): 대표자명
-            - corp_cls (str): 법인구분 (Y:유가, K:코스닥, N:코넥스, E:기타)
-            - jurir_no (str): 법인등록번호
-            - bizr_no (str): 사업자등록번호
-            - adres (str): 주소
-            - hm_url (str): 홈페이지
-            - ir_url (str): IR홈페이지
-            - phn_no (str): 전화번호
-            - fax_no (str): 팩스번호
-            - induty_code (str): 업종코드
-            - est_dt (str): 설립일 (YYYYMMDD)
-            - acc_mt (str): 결산월 (MM)
     """
     # 파라미터 검증
-    if not api_key or len(api_key) != 40:
-        raise ValueError("api_key는 40자리 인증키여야 합니다.")
-
     if not corp_code or len(corp_code) != 8:
         raise ValueError("corp_code는 8자리 고유번호여야 합니다.")
 
     url = "https://opendart.fss.or.kr/api/company.json"
     params = {
-        "crtfc_key": api_key,
         "corp_code": corp_code,
     }
 
     try:
-        response = requests.get(url, params=params)
+        response = client.get(url, params=params)
         response.raise_for_status()
 
         data = response.json()
 
         # 에러 처리
-        if "status" in data:
-            status = data.get("status", "")
-            message = data.get("message", "")
-
-            error_codes = {
-                "010": "등록되지 않은 키입니다",
-                "011": "사용할 수 없는 키입니다. 오픈API에 등록되었으나, 일시적으로 사용 중지된 키를 통하여 검색하는 경우 발생합니다",
-                "012": "접근할 수 없는 IP입니다",
-                "013": "조회된 데이타가 없습니다",
-                "014": "파일이 존재하지 않습니다",
-                "020": "요청 제한을 초과하였습니다. 일반적으로는 20,000건 이상의 요청에 대하여 이 에러 메시지가 발생되나, 요청 제한이 다르게 설정된 경우에는 이에 준하여 발생됩니다",
-                "021": "조회 가능한 회사 개수가 초과하였습니다 (최대 100건)",
-                "100": "필드의 부적절한 값입니다. 필드 설명에 없는 값을 사용한 경우에 발생하는 메시지입니다",
-                "101": "부적절한 접근입니다",
-                "800": "시스템 점검으로 인한 서비스가 중지 중입니다",
-                "900": "정의되지 않은 오류가 발생하였습니다",
-                "901": "사용자 계정의 개인정보 보유기간이 만료되어 사용할 수 없는 키입니다. 관리자 이메일(opendart@fss.or.kr)로 문의하시기 바랍니다",
-            }
-
-            if status != "000":
-                error_message = error_codes.get(status, message)
-                raise APIError(status, error_message)
+        raise_for_dart_status(data)
 
         return data
 
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         raise APIError("CONNECTION_ERROR", f"API 호출 중 네트워크 오류가 발생했습니다: {str(e)}")
     except Exception as e:
         if isinstance(e, (ValueError, APIError)):
@@ -395,35 +280,27 @@ def company(api_key: str, corp_code: str) -> Dict[str, Any]:
         raise APIError("UNKNOWN_ERROR", f"예상치 못한 오류가 발생했습니다: {str(e)}")
 
 
-def document(api_key: str, rcp_no: str) -> str:
+def document(client: httpx.Client, rcept_no: str) -> str:
     """공시서류원본파일을 조회합니다.
 
     공시보고서 원본파일을 제공합니다. ZIP 파일 형식으로 반환되며,
     첫 번째 파일의 XML 내용을 디코딩하여 반환합니다.
 
     Args:
-        api_key: API 인증키. 발급받은 인증키(40자리). 필수 파라미터입니다.
-        rcp_no: 접수번호. 접수번호(14자리. 예: 20190401004781). 필수 파라미터입니다.
-
-    Returns:
-        str: 공시서류원본파일의 XML 내용 (첫 번째 파일).
-             인코딩은 euc-kr, utf-8 순서로 시도하며, 실패 시 바이너리 데이터를 반환합니다.
+        client: crtfc_key가 설정된 httpx.Client (DartServerState.get_client() 참조).
+        rcept_no: 접수번호. 접수번호(14자리. 예: 20190401004781). 필수 파라미터입니다.
     """
     # 파라미터 검증
-    if not api_key or len(api_key) != 40:
-        raise ValueError("api_key는 40자리 인증키여야 합니다.")
-
-    if not rcp_no or len(rcp_no) != 14:
-        raise ValueError("rcp_no는 14자리 접수번호여야 합니다.")
+    if not rcept_no or len(rcept_no) != 14:
+        raise ValueError("rcept_no는 14자리 접수번호여야 합니다.")
 
     url = "https://opendart.fss.or.kr/api/document.xml"
     params = {
-        "crtfc_key": api_key,
-        "rcept_no": rcp_no,
+        "rcept_no": rcept_no,
     }
 
     try:
-        response = requests.get(url, params=params)
+        response = client.get(url, params=params)
         response.raise_for_status()
 
         # 응답이 XML 에러 메시지인지 확인
@@ -435,24 +312,8 @@ def document(api_key: str, rcp_no: str) -> str:
                 status_text = status.text
                 message_text = message.text
 
-                error_codes = {
-                    "010": "등록되지 않은 키입니다",
-                    "011": "사용할 수 없는 키입니다. 오픈API에 등록되었으나, 일시적으로 사용 중지된 키를 통하여 검색하는 경우 발생합니다",
-                    "012": "접근할 수 없는 IP입니다",
-                    "013": "조회된 데이타가 없습니다",
-                    "014": "파일이 존재하지 않습니다",
-                    "020": "요청 제한을 초과하였습니다. 일반적으로는 20,000건 이상의 요청에 대하여 이 에러 메시지가 발생되나, 요청 제한이 다르게 설정된 경우에는 이에 준하여 발생됩니다",
-                    "021": "조회 가능한 회사 개수가 초과하였습니다 (최대 100건)",
-                    "100": "필드의 부적절한 값입니다. 필드 설명에 없는 값을 사용한 경우에 발생하는 메시지입니다",
-                    "101": "부적절한 접근입니다",
-                    "800": "시스템 점검으로 인한 서비스가 중지 중입니다",
-                    "900": "정의되지 않은 오류가 발생하였습니다",
-                    "901": "사용자 계정의 개인정보 보유기간이 만료되어 사용할 수 없는 키입니다. 관리자 이메일(opendart@fss.or.kr)로 문의하시기 바랍니다",
-                }
-
                 if status_text != "000":
-                    error_message = error_codes.get(status_text, message_text)
-                    raise APIError(status_text, error_message)
+                    raise_for_dart_status({"status": status_text, "message": message_text})
         except ET.ParseError:
             # XML 파싱 실패 시 ZIP 파일로 간주하고 계속 진행
             pass
@@ -484,7 +345,7 @@ def document(api_key: str, rcp_no: str) -> str:
 
         return parsed_text
 
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         raise APIError("CONNECTION_ERROR", f"API 호출 중 네트워크 오류가 발생했습니다: {str(e)}")
     except zipfile.BadZipFile as e:
         raise APIError("INVALID_ZIP", f"유효하지 않은 ZIP 파일입니다: {str(e)}")
@@ -494,37 +355,20 @@ def document(api_key: str, rcp_no: str) -> str:
         raise APIError("UNKNOWN_ERROR", f"예상치 못한 오류가 발생했습니다: {str(e)}")
 
 
-def corpCode(api_key: str) -> Dict[str, Any]:
+def corpCode(client: httpx.Client) -> Dict[str, Any]:
     """공시대상회사의 고유번호 정보를 조회합니다.
 
     DART에 등록되어있는 공시대상회사의 고유번호, 회사명, 종목코드, 최근변경일자를 파일로 제공합니다.
     ZIP 파일 형식으로 반환되며, 내부 XML 파일을 파싱하여 정보를 추출합니다.
 
     Args:
-        api_key: API 인증키. 발급받은 인증키(40자리). 필수 파라미터입니다.
-
-    Returns:
-        dict: 공시대상회사 정보를 담은 딕셔너리. 다음 구조를 가집니다:
-            - status (str): 에러 및 정보 코드
-            - message (str): 에러 및 정보 메시지
-            - list (list): 공시대상회사 정보 배열. 각 항목은 다음 필드를 포함:
-                - corp_code (str): 고유번호 (공시대상회사의 고유번호 8자리)
-                - corp_name (str): 정식명칭 (정식회사명칭)
-                - corp_eng_name (str): 영문 정식명칭 (영문정식회사명칭)
-                - stock_code (str): 종목코드 (상장회사인 경우 주식의 종목코드 6자리)
-                - modify_date (str): 최종변경일자 (기업개황정보 최종변경일자 YYYYMMDD)
+        client: crtfc_key가 설정된 httpx.Client (DartServerState.get_client() 참조).
     """
-    # 파라미터 검증
-    if not api_key or len(api_key) != 40:
-        raise ValueError("api_key는 40자리 인증키여야 합니다.")
-
     url = "https://opendart.fss.or.kr/api/corpCode.xml"
-    params = {
-        "crtfc_key": api_key,
-    }
+    params: dict = {}
 
     try:
-        response = requests.get(url, params=params)
+        response = client.get(url, params=params)
         response.raise_for_status()
 
         # 응답이 XML 에러 메시지인지 확인
@@ -536,24 +380,8 @@ def corpCode(api_key: str) -> Dict[str, Any]:
                 status_text = status.text
                 message_text = message.text
 
-                error_codes = {
-                    "010": "등록되지 않은 키입니다",
-                    "011": "사용할 수 없는 키입니다. 오픈API에 등록되었으나, 일시적으로 사용 중지된 키를 통하여 검색하는 경우 발생합니다",
-                    "012": "접근할 수 없는 IP입니다",
-                    "013": "조회된 데이타가 없습니다",
-                    "014": "파일이 존재하지 않습니다",
-                    "020": "요청 제한을 초과하였습니다. 일반적으로는 20,000건 이상의 요청에 대하여 이 에러 메시지가 발생되나, 요청 제한이 다르게 설정된 경우에는 이에 준하여 발생됩니다",
-                    "021": "조회 가능한 회사 개수가 초과하였습니다 (최대 100건)",
-                    "100": "필드의 부적절한 값입니다. 필드 설명에 없는 값을 사용한 경우에 발생하는 메시지입니다",
-                    "101": "부적절한 접근입니다",
-                    "800": "시스템 점검으로 인한 서비스가 중지 중입니다",
-                    "900": "정의되지 않은 오류가 발생하였습니다",
-                    "901": "사용자 계정의 개인정보 보유기간이 만료되어 사용할 수 없는 키입니다. 관리자 이메일(opendart@fss.or.kr)로 문의하시기 바랍니다",
-                }
-
                 if status_text != "000":
-                    error_message = error_codes.get(status_text, message_text)
-                    raise APIError(status_text, error_message)
+                    raise_for_dart_status({"status": status_text, "message": message_text})
         except ET.ParseError:
             # XML 파싱 실패 시 ZIP 파일로 간주하고 계속 진행
             pass
@@ -583,7 +411,7 @@ def corpCode(api_key: str) -> Dict[str, Any]:
 
         return {"status": "000", "message": "정상", "list": all_records}
 
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         raise APIError("CONNECTION_ERROR", f"API 호출 중 네트워크 오류가 발생했습니다: {str(e)}")
     except zipfile.BadZipFile as e:
         raise APIError("INVALID_ZIP", f"유효하지 않은 ZIP 파일입니다: {str(e)}")
