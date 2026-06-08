@@ -3,13 +3,48 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from monitor.deviation import _evaluate, _run_eod_summary, monitor_deviation
+from monitor.deviation import (
+    _evaluate,
+    _fetch_index_closes,
+    _fetch_stock_closes,
+    _run_eod_summary,
+    monitor_deviation,
+)
 from monitor.notifier import format_deviation_summary
 
 
 def _closes(ratio: float, ma50: float = 100.0) -> list[float]:
     """Build a closes list where MA50 == ma50 and current/MA50*100 == ratio."""
     return [ma50] * 50 + [ma50 * ratio / 100]
+
+
+# ---------------------------------------------------------------------------
+# _fetch_index_closes / _fetch_stock_closes — qrycnt must be int (t8419/t8451 spec)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_index_closes_sends_qrycnt_as_int() -> None:
+    mock_resp = MagicMock()
+    mock_resp.block.return_value = [{"close": "100"}]
+    mock_client = AsyncMock()
+    mock_client.call.return_value = mock_resp
+
+    await _fetch_index_closes(mock_client, "001", count=60)
+
+    body = mock_client.call.call_args.args[1]
+    assert isinstance(body["t8419InBlock"]["qrycnt"], int)
+
+
+async def test_fetch_stock_closes_sends_qrycnt_as_int() -> None:
+    mock_resp = MagicMock()
+    mock_resp.block.return_value = [{"close": "100"}]
+    mock_client = AsyncMock()
+    mock_client.call.return_value = mock_resp
+
+    await _fetch_stock_closes(mock_client, "005930", count=60)
+
+    body = mock_client.call.call_args.args[1]
+    assert isinstance(body["t8451InBlock"]["qrycnt"], int)
 
 
 # ---------------------------------------------------------------------------
@@ -204,72 +239,41 @@ async def test_run_eod_summary_passes_custom_label_to_formatter() -> None:
 
 
 # ---------------------------------------------------------------------------
-# monitor_deviation — morning summary loop behavior
+# monitor_deviation — startup summary + loop behavior
 # ---------------------------------------------------------------------------
 
 
-async def test_monitor_deviation_morning_summary_fires_once_at_open() -> None:
-    """Morning summary runs once when market opens; not on subsequent polls."""
-    iterations = 0
+def _make_ls_mock() -> tuple[AsyncMock, MagicMock]:
+    mock_client = AsyncMock()
+    mock_ls_instance = MagicMock()
+    mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
+    return mock_client, mock_ls_instance
+
+
+def _make_cfg_mock() -> MagicMock:
+    mock_cfg = MagicMock()
+    mock_cfg.ls_api.app_key = "test_key"
+    mock_cfg.ls_api.app_secret = "test_secret"
+    return mock_cfg
+
+
+async def test_monitor_deviation_startup_summary_fires_before_loop() -> None:
+    """Startup summary always fires once with label='서비스 시작' before any loop logic."""
+    # is_market_hours: pre-loop=False, then immediately CancelledError in loop
+    call_count = 0
 
     def fake_market_hours():
-        nonlocal iterations
-        iterations += 1
-        if iterations <= 3:
-            return True
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return False
         raise asyncio.CancelledError()
 
-    mock_client = AsyncMock()
-    mock_ls_instance = MagicMock()
-    mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
-
-    mock_cfg = MagicMock()
-    mock_cfg.ls_api.app_key = "test_key"
-    mock_cfg.ls_api.app_secret = "test_secret"
+    _, mock_ls_instance = _make_ls_mock()
 
     with (
-        patch("monitor.deviation.cfg", mock_cfg),
-        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
-        patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
-        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
-        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
-        patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        try:
-            await monitor_deviation()
-        except asyncio.CancelledError:
-            pass
-
-    # First call: label="장 시작" (morning); no further summary calls during polling
-    assert mock_summary.await_count == 1
-    assert mock_summary.call_args.kwargs["label"] == "장 시작"
-
-
-async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
-    """After market closes (EOD summary), morning summary fires again on next open."""
-    sequence = [True, False, False, True]
-    idx = 0
-
-    def fake_market_hours():
-        nonlocal idx
-        if idx >= len(sequence):
-            raise asyncio.CancelledError()
-        val = sequence[idx]
-        idx += 1
-        return val
-
-    mock_client = AsyncMock()
-    mock_ls_instance = MagicMock()
-    mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
-
-    mock_cfg = MagicMock()
-    mock_cfg.ls_api.app_key = "test_key"
-    mock_cfg.ls_api.app_secret = "test_secret"
-
-    with (
-        patch("monitor.deviation.cfg", mock_cfg),
+        patch("monitor.deviation.cfg", _make_cfg_mock()),
         patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
         patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
@@ -282,11 +286,112 @@ async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
         except asyncio.CancelledError:
             pass
 
-    # Calls: "장 시작" on first open, "장 마감" on close, "장 시작" on second open
-    assert mock_summary.await_count == 3
-    # EOD call uses default (no kwarg), morning calls pass label explicitly
+    assert mock_summary.await_count == 1
+    assert mock_summary.call_args.kwargs["label"] == "서비스 시작"
+
+
+async def test_monitor_deviation_no_duplicate_morning_summary_when_starting_during_market() -> None:
+    """When starting during market hours, startup summary serves as the morning message;
+    no additional '장 시작' message is sent during that session."""
+    # is_market_hours: pre-loop=True, 3 loop iterations, then CancelledError
+    iterations = 0
+
+    def fake_market_hours():
+        nonlocal iterations
+        iterations += 1
+        if iterations <= 4:
+            return True
+        raise asyncio.CancelledError()
+
+    _, mock_ls_instance = _make_ls_mock()
+
+    with (
+        patch("monitor.deviation.cfg", _make_cfg_mock()),
+        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
+        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
+        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        try:
+            await monitor_deviation()
+        except asyncio.CancelledError:
+            pass
+
+    # Only the startup summary; no '장 시작' duplicate
+    assert mock_summary.await_count == 1
+    assert mock_summary.call_args.kwargs["label"] == "서비스 시작"
+
+
+async def test_monitor_deviation_morning_summary_fires_when_starting_outside_market() -> None:
+    """When starting outside market hours, morning summary still fires when market opens."""
+    # is_market_hours sequence: pre-loop=False, loop1=False(closed), loop2=True(open), loop3=True, CancelledError
+    sequence = [False, False, True, True]
+    idx = 0
+
+    def fake_market_hours():
+        nonlocal idx
+        if idx >= len(sequence):
+            raise asyncio.CancelledError()
+        val = sequence[idx]
+        idx += 1
+        return val
+
+    _, mock_ls_instance = _make_ls_mock()
+
+    with (
+        patch("monitor.deviation.cfg", _make_cfg_mock()),
+        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
+        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
+        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation.seconds_until_market_open", return_value=0.0),
+        patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        try:
+            await monitor_deviation()
+        except asyncio.CancelledError:
+            pass
+
+    assert mock_summary.await_count == 2
     labels = [c.kwargs.get("label", "장 마감") for c in mock_summary.await_args_list]
-    assert labels == ["장 시작", "장 마감", "장 시작"]
+    assert labels == ["서비스 시작", "장 시작"]
+
+
+async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
+    """After EOD summary, morning summary fires again on the next open."""
+    # is_market_hours sequence: pre-loop=True, loop1=False(close), loop2=False, loop3=True(reopen), CancelledError
+    sequence = [True, False, False, True]
+    idx = 0
+
+    def fake_market_hours():
+        nonlocal idx
+        if idx >= len(sequence):
+            raise asyncio.CancelledError()
+        val = sequence[idx]
+        idx += 1
+        return val
+
+    _, mock_ls_instance = _make_ls_mock()
+
+    with (
+        patch("monitor.deviation.cfg", _make_cfg_mock()),
+        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
+        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
+        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation.seconds_until_market_open", return_value=0.0),
+        patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        try:
+            await monitor_deviation()
+        except asyncio.CancelledError:
+            pass
+
+    # Calls in order: "서비스 시작" (startup), "장 마감" (EOD), "장 시작" (next morning)
+    assert mock_summary.await_count == 3
+    labels = [c.kwargs.get("label", "장 마감") for c in mock_summary.await_args_list]
+    assert labels == ["서비스 시작", "장 마감", "장 시작"]
 
 
 # ---------------------------------------------------------------------------

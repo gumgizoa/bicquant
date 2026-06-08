@@ -170,12 +170,12 @@ def list_dart_disclosures_by_date(
             hhmm = tds[0].text.strip()
             corp_class = tds[1].span.span.text
             name = tds[1].span.a.text.strip()
-            rcp_no = tds[2].a["href"].split("=")[1]
+            rcept_no = tds[2].a["href"].split("=")[1]
             title = " ".join(tds[2].a.text.split())
             fr_name = tds[3].text
             remark = "".join([span.text for span in tds[5].find_all("span")])
             dt = date.strftime("%Y-%m-%d") + " " + hhmm
-            data_list.append([dt, corp_class, name, rcp_no, title, fr_name, remark])
+            data_list.append([dt, corp_class, name, rcept_no, title, fr_name, remark])
 
         df = pd.DataFrame(data_list, columns=columns)
         df["rcept_dt"] = pd.to_datetime(df["rcept_dt"])
@@ -188,12 +188,12 @@ def list_dart_disclosures_by_date(
     return merged.to_dict("records")
 
 
-def get_dart_report_sub_documents(rcp_no: str, match: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_dart_report_sub_documents(rcept_no: str, match: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     공시 문서 내부의 목차(하위 섹션) 목록을 조회합니다. 사업보고서와 같은 긴 문서에서 '재무제표', '사업의 내용' 등 특정 섹션의 URL을 찾을 때 사용합니다.
 
     Args:
-        rcp_no: 접수번호(14자리. 예: 20190401004781) 또는 하위 문서를 포함한 DART URL (`http`로 시작).
+        rcept_no: 접수번호(14자리. 예: 20190401004781) 또는 하위 문서를 포함한 DART URL (`http`로 시작).
         match: 매칭할 문자열. 지정하면 제목과의 유사도 기준으로 내림차순 정렬합니다.
 
     Returns:
@@ -201,12 +201,12 @@ def get_dart_report_sub_documents(rcp_no: str, match: Optional[str] = None) -> L
             - title (str): 문서 제목
             - url (str): 뷰어 URL
     """
-    if rcp_no.isdecimal():
-        r = _dart_get(f"{_BASE_URL}/dsaf001/main.do?rcpNo={rcp_no}")
-    elif rcp_no.startswith("http"):
-        r = _dart_get(rcp_no)
+    if rcept_no.isdecimal():
+        r = _dart_get(f"{_BASE_URL}/dsaf001/main.do?rcpNo={rcept_no}")
+    elif rcept_no.startswith("http"):
+        r = _dart_get(rcept_no)
     else:
-        raise ValueError("invalid `rcp_no`(or url)")
+        raise ValueError("invalid `rcept_no`(or url)")
 
     # 하위 문서 URL 추출
     multi_page_re = (
@@ -244,7 +244,7 @@ def get_dart_report_sub_documents(rcp_no: str, match: Optional[str] = None) -> L
             df_single = pd.DataFrame([[doc_title, doc_url]], columns=["title", "url"])
             return df_single.to_dict("records")
         else:
-            raise Exception(f"{rcp_no} 하위 페이지를 포함하고 있지 않습니다")
+            raise Exception(f"{rcept_no} 하위 페이지를 포함하고 있지 않습니다")
 
     return []
 
@@ -276,12 +276,12 @@ def extract_dart_viewer_content(url: str) -> str:
     return response
 
 
-def get_dart_report_attached_documents(rcp_no: str, match: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_dart_report_attached_documents(rcept_no: str, match: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     공시에 첨부된 관련 공시 문서 목록을 조회합니다. 사업보고서에 첨부된 '정관', '감사보고서', '내부회계관리제도' 등의 다른 공시 페이지를 찾을 때 사용합니다.
 
     Args:
-        rcp_no: 접수번호(14자리. 예: 20190401004781).
+        rcept_no: 접수번호(14자리. 예: 20190401004781).
         match: 문서 제목과의 유사도 기준으로 정렬할 기준 문자열. 지정하면 유사도가 높은 순으로 정렬합니다.
 
     Returns:
@@ -289,13 +289,13 @@ def get_dart_report_attached_documents(rcp_no: str, match: Optional[str] = None)
             - title (str): 첨부문서 제목
             - url (str): 첨부문서 메인 URL
     """
-    r = _dart_get(f"{_BASE_URL}/dsaf001/main.do?rcpNo={rcp_no}")
+    r = _dart_get(f"{_BASE_URL}/dsaf001/main.do?rcpNo={rcept_no}")
     soup = BeautifulSoup(r.text, features="lxml")
 
     row_list = []
     att = soup.find(id="att")
     if not att:
-        raise Exception(f"rcp_no={rcp_no} 첨부문서를 포함하고 있지 않습니다")
+        raise Exception(f"rcept_no={rcept_no} 첨부문서를 포함하고 있지 않습니다")
 
     for opt in att.find_all("option"):
         if opt["value"] == "null":
@@ -311,7 +311,7 @@ def get_dart_report_attached_documents(rcp_no: str, match: Optional[str] = None)
     return df[["title", "url"]].to_dict("records")
 
 
-def get_dart_report_downloadable_attachments(arg: str) -> Dict[str, str]:  # rcp_no 또는 URL
+def get_dart_report_downloadable_attachments(arg: str) -> Dict[str, str]:  # rcept_no 또는 URL
     """
     공시에 첨부된 실제 다운로드 가능한 파일(PDF, Excel, 한글 문서 등)의 목록과 다운로드 링크를 조회합니다.
 
@@ -324,7 +324,7 @@ def get_dart_report_downloadable_attachments(arg: str) -> Dict[str, str]:  # rcp
     url = arg if arg.startswith("http") else f"{_BASE_URL}/dsaf001/main.do?rcpNo={arg}"
     r = _dart_get(url)
 
-    rcp_no = dcm_no = None
+    rcept_no = dcm_no = None
     # Use raw string to avoid syntax warnings about escape sequences
     matches = re.findall(
         r"\s+node[12]\['rcpNo'\][ =]+\"(\d+)\";"
@@ -332,13 +332,13 @@ def get_dart_report_downloadable_attachments(arg: str) -> Dict[str, str]:  # rcp
         r.text,
     )
     if matches:
-        rcp_no = matches[0][0]
+        rcept_no = matches[0][0]
         dcm_no = matches[0][1]
 
     if not dcm_no:
         print(f"{url} does not have download page. 다운로드 페이지를 포함하고 있지 않습니다.")
 
-    download_url = f"{_BASE_URL}/pdf/download/main.do?rcp_no={rcp_no}&dcm_no={dcm_no}"
+    download_url = f"{_BASE_URL}/pdf/download/main.do?rcp_no={rcept_no}&dcm_no={dcm_no}"
     r = _dart_get(download_url)
     soup = BeautifulSoup(r.text, features="lxml")
     table = soup.find("table")

@@ -1,17 +1,27 @@
 # -*- coding:utf-8 -*-
-# Field catalogs for DART OpenAPI endpoints.
+# Return field catalogs for DART OpenAPI endpoints.
 # Each entry: {"description": str, "fields": {field_name: description}}
 
 from typing import Dict
 
 _FieldMap = Dict[str, str]
 
-_COMMON_EVENT_FIELDS: _FieldMap = {
+# ----- Common Return Fields ----- #
+# Fields shared across (almost) every DART OpenAPI JSON endpoint. Individual
+# endpoints either spread these verbatim (`**COMMON_RETURN_FIELDS`) or override a
+# single entry (e.g. report uses 법인명 for corp_name, share drops corp_cls).
+COMMON_RETURN_FIELDS: _FieldMap = {
     "rcept_no": "접수번호(14자리). 공시뷰어 접근 시 사용",
     "corp_cls": "법인구분 (Y:유가, K:코스닥, N:코넥스, E:기타)",
     "corp_code": "고유번호 (공시대상회사의 고유번호 8자리)",
     "corp_name": "회사명 (공시대상회사명)",
 }
+
+# ----- Event Catalogue (주요사항보고서 주요정보) ----- #
+# source: https://opendart.fss.or.kr/guide/main.do?apiGrpCd=DS005
+
+# event/regstate use the common fields as-is.
+_COMMON_EVENT_FIELDS: _FieldMap = COMMON_RETURN_FIELDS
 
 _COMMON_BOARD_FIELDS: _FieldMap = {
     "bddd": "이사회결의일(결정일)",
@@ -50,7 +60,7 @@ _COMMON_BOND_FIELDS: _FieldMap = {
 }
 
 
-EVENT_CATALOG: Dict[str, Dict] = {
+EVENT_RETURN_FIELDS_CATALOG: Dict[str, Dict] = {
     "astInhtrfEtcPtbkOpt": {
         "description": "자산양수도(기타), 풋백옵션",
         "fields": {
@@ -661,14 +671,12 @@ EVENT_CATALOG: Dict[str, Dict] = {
 }
 
 
-_COMMON_REGSTATE_FIELDS: _FieldMap = {
-    "rcept_no": "접수번호(14자리). 공시뷰어 접근 시 사용",
-    "corp_cls": "법인구분 (Y:유가, K:코스닥, N:코넥스, E:기타)",
-    "corp_code": "고유번호 (공시대상회사의 고유번호 8자리)",
-    "corp_name": "회사명 (공시대상회사명)",
-}
+# ----- Regstate Catalogue (증권신고서 주요정보) ----- #
+# source: https://opendart.fss.or.kr/guide/main.do?apiGrpCd=DS006
 
-REGSTATE_CATALOG: Dict[str, Dict] = {
+_COMMON_REGSTATE_FIELDS: _FieldMap = COMMON_RETURN_FIELDS
+
+REGSTATE_RETURN_FIELDS_CATALOG: Dict[str, Dict] = {
     "estkRs": {
         "description": "증권신고서(지분증권)",
         "fields": {
@@ -880,16 +888,17 @@ REGSTATE_CATALOG: Dict[str, Dict] = {
     },
 }
 
+# ----- Report Catalogue (정기보고서 주요정보) ----- #
+# source: https://opendart.fss.or.kr/guide/main.do?apiGrpCd=DS005
 
+# report renames corp_name to 법인명 and adds 결산기준일.
 _COMMON_REPORT_FIELDS: _FieldMap = {
-    "rcept_no": "접수번호(14자리). 공시뷰어 접근 시 사용",
-    "corp_cls": "법인구분 (Y:유가, K:코스닥, N:코넥스, E:기타)",
-    "corp_code": "고유번호 (공시대상회사의 고유번호 8자리)",
+    **COMMON_RETURN_FIELDS,
     "corp_name": "법인명",
     "stlm_dt": "결산기준일 (YYYY-MM-DD)",
 }
 
-REPORT_CATALOG: Dict[str, Dict] = {
+REPORT_RETURN_FIELDS_CATALOG: Dict[str, Dict] = {
     "irdsSttus": {
         "description": "증자(감자) 현황",
         "fields": {
@@ -1289,3 +1298,256 @@ REPORT_CATALOG: Dict[str, Dict] = {
         },
     },
 }
+# ----- Share Catalogue (지분공시 종합정보) ----- #
+# source: https://opendart.fss.or.kr/guide/main.do?apiGrpCd=DS004
+# Share endpoints drop corp_cls and use rcept_dt(YYYY-MM-DD); corp_name covers
+# both 상장사 종목명 and 기타법인 법인명.
+_COMMON_SHARE_FIELDS: _FieldMap = {
+    "rcept_no": COMMON_RETURN_FIELDS["rcept_no"],
+    "rcept_dt": "접수일자 (공시 접수일자 YYYY-MM-DD)",
+    "corp_code": COMMON_RETURN_FIELDS["corp_code"],
+    "corp_name": "회사명 (공시대상회사의 종목명(상장사) 또는 법인명(기타법인))",
+}
+
+_MAJORSTOCK_FIELDS: _FieldMap = {
+    **_COMMON_SHARE_FIELDS,
+    "report_tp": "보고구분 (주식등의 대량보유상황 보고구분)",
+    "repror": "대표보고자",
+    "stkqy": "보유주식등의 수",
+    "stkqy_irds": "보유주식등의 증감",
+    "stkrt": "보유비율",
+    "stkrt_irds": "보유비율 증감",
+    "ctr_stkqy": "주요체결 주식등의 수",
+    "ctr_stkrt": "주요체결 보유비율",
+    "report_resn": "보고사유",
+}
+_ELESTOCK_FIELDS: _FieldMap = {
+    **_COMMON_SHARE_FIELDS,
+    "repror": "보고자명",
+    "isu_exctv_rgist_at": "발행 회사 관계 임원(등기여부) (등기임원, 비등기임원 등)",
+    "isu_exctv_ofcps": "발행 회사 관계 임원 직위 (대표이사, 이사, 전무 등)",
+    "isu_main_shrholdr": "발행 회사 관계 주요 주주 (10%이상주주 등)",
+    "sp_stock_lmp_cnt": "특정 증권 등 소유 수",
+    "sp_stock_lmp_irds_cnt": "특정 증권 등 소유 증감 수",
+    "sp_stock_lmp_rate": "특정 증권 등 소유 비율",
+    "sp_stock_lmp_irds_rate": "특정 증권 등 소유 증감 비율",
+}
+
+SHARE_RETURN_FIELDS_CATALOG: Dict[str, Dict] = {
+    "majorstock": {
+        "description": "주식등의 대량보유상황보고서",
+        "fields": _MAJORSTOCK_FIELDS,
+    },
+    "elestock": {
+        "description": "임원ㆍ주요주주특정증권등 소유상황보고서",
+        "fields": _ELESTOCK_FIELDS,
+    },
+}
+
+# ----- Finstate Catalogue (상장기업 재무정보) ----- #
+# source: https://opendart.fss.or.kr/guide/main.do?apiGrpCd=DS003
+_COMMON_FINSTATE_FIELDS: _FieldMap = {
+    "rcept_no": COMMON_RETURN_FIELDS["rcept_no"],
+    "reprt_code": "보고서 코드",
+    "bsns_year": "사업 연도",
+    "sj_div": "재무제표구분 (BS:재무상태표, IS:손익계산서, CIS:포괄손익계산서, CF:현금흐름표, SCE:자본변동표)",
+    "sj_nm": "재무제표명 (예: 재무상태표 또는 손익계산서)",
+    "account_nm": "계정명 (예: 자본총계)",
+    # thstrm_nm / thstrm_amount은 두 엔드포인트의 원본 설명이 달라 각 항목에 개별 정의함.
+    "thstrm_add_amount": "당기누적금액",
+    "frmtrm_nm": "전기명 (예: 제 12 기말)",
+    "frmtrm_amount": "전기금액",
+    "frmtrm_add_amount": "전기누적금액",
+    "bfefrmtrm_nm": "전전기명 (사업보고서의 경우에만 출력)",
+    "bfefrmtrm_amount": "전전기금액 (사업보고서의 경우에만 출력)",
+    "ord": "계정과목 정렬순서",
+    "currency": "통화 단위",
+}
+
+_FNLTTACNT_FIELDS: _FieldMap = {
+    **_COMMON_FINSTATE_FIELDS,
+    "stock_code": "종목 코드 (상장회사의 종목코드 6자리)",
+    "fs_div": "개별/연결구분 (OFS:재무제표, CFS:연결재무제표)",
+    "fs_nm": "개별/연결명 (예: 연결재무제표 또는 재무제표)",
+    "thstrm_nm": "당기명 (예: 제 13 기 3분기말)",
+    "thstrm_dt": "당기일자 (예: 2018.09.30 현재)",
+    "thstrm_amount": "당기금액",
+    "frmtrm_dt": "전기일자 (예: 2017.01.01 ~ 2017.12.31)",
+    "bfefrmtrm_dt": "전전기일자 (사업보고서의 경우에만 출력)",
+}
+_FNLTTSINGLACNTALL_FIELDS: _FieldMap = {
+    **_COMMON_FINSTATE_FIELDS,
+    "corp_code": COMMON_RETURN_FIELDS["corp_code"],
+    "account_id": '계정ID (XBRL 표준계정ID, 표준계정코드 미사용 시 ""-표준계정코드 미사용-"" 표시)',
+    "account_detail": "계정상세 (자본변동표에만 출력, 예: 자본 [member]|지배기업 소유주지분)",
+    "thstrm_nm": "당기명 (예: 제 13 기)",
+    "thstrm_amount": "당기금액 (분/반기 보고서이면서 (포괄)손익계산서일 경우 [3개월] 금액)",
+    "frmtrm_q_nm": "전기명(분/반기) (예: 제 18 기 반기)",
+    "frmtrm_q_amount": "전기금액(분/반기) (분/반기 보고서이면서 (포괄)손익계산서일 경우 [3개월] 금액)",
+}
+# xbrlTaxonomy (표준계정과목체계) does not share common fields because it is metadata, not financial data.
+_XBRLTAXONOMY_FIELDS: _FieldMap = {
+    "sj_div": "재무제표구분",
+    "account_id": "계정ID (계정 고유명칭)",
+    "account_nm": "계정명",
+    "bsns_de": "기준일 (적용 기준일)",
+    "label_kor": "한글 출력명",
+    "label_eng": "영문 출력명",
+    "data_tp": (
+        "데이터 유형. 다음 중 하나:\n"
+        '    - "text block": 제목\n'
+        '    - "Text": Text\n'
+        '    - "yyyy-mm-dd": Date\n'
+        '    - "X": Monetary Value\n'
+        '    - "(X)": Monetary Value(Negative)\n'
+        '    - "X.XX": Decimalized Value\n'
+        '    - "Shares": Number of shares (주식 수)\n'
+        '    - "For each": 공시된 항목이 전후로 반복적으로 공시될 경우 사용\n'
+        "    - 공란: 입력 필요 없음"
+    ),
+    "ifrs_ref": "IFRS Reference (예: K-IFRS 1001 문단 54 (9),K-IFRS 1007 문단 45)",
+}
+
+FINSTATE_RETURN_FIELDS_CATALOG: Dict[str, Dict] = {
+    "fnlttAcnt": {
+        "description": "상장기업 재무정보(주요계정)",
+        "fields": _FNLTTACNT_FIELDS,
+    },
+    "fnlttSinglAcntAll": {
+        "description": "단일회사 전체 재무제표(전체계정)",
+        "fields": _FNLTTSINGLACNTALL_FIELDS,
+    },
+    "xbrlTaxonomy": {
+        "description": "XBRL 표준계정과목체계(계정과목)",
+        "fields": _XBRLTAXONOMY_FIELDS,
+    },
+}
+
+# ----- List Catalogue (공시정보) ----- #
+# source: https://opendart.fss.or.kr/guide/main.do?apiGrpCd=DS001
+_LIST_FIELDS: _FieldMap = {
+    "corp_cls": COMMON_RETURN_FIELDS["corp_cls"],
+    "corp_name": "종목명(법인명) (공시대상회사의 종목명(상장사) 또는 법인명(기타법인))",
+    "corp_code": COMMON_RETURN_FIELDS["corp_code"],
+    "stock_code": "종목코드 (상장회사의 종목코드 6자리)",
+    "report_nm": "보고서명 (공시구분+보고서명+기타정보)",
+    "rcept_no": COMMON_RETURN_FIELDS["rcept_no"],
+    "flr_nm": "공시 제출인명",
+    "rcept_dt": "접수일자 (공시 접수일자 YYYYMMDD)",
+    "rm": (
+        "비고. 조합된 문자로 각각은 아래와 같은 의미가 있음:\n"
+        "    - 유: 본 공시사항은 한국거래소 유가증권시장본부 소관임\n"
+        "    - 코: 본 공시사항은 한국거래소 코스닥시장본부 소관임\n"
+        "    - 채: 본 문서는 한국거래소 채권상장법인 공시사항임\n"
+        "    - 넥: 본 문서는 한국거래소 코넥스시장 소관임\n"
+        "    - 공: 본 공시사항은 공정거래위원회 소관임\n"
+        "    - 연: 본 보고서는 연결부분을 포함한 것임\n"
+        "    - 정: 본 보고서 제출 후 정정신고가 있으니 관련 보고서를 참조하시기 바람\n"
+        "    - 철: 본 보고서는 철회(간주)되었으니 관련 철회신고서(철회간주안내)를 참고하시기 바람"
+    ),
+}
+_COMPANY_FIELDS: _FieldMap = {
+    "corp_name": "정식명칭 (정식회사명칭)",
+    "corp_name_eng": "영문명칭 (영문정식회사명칭)",
+    "stock_name": "종목명(상장사) 또는 약식명칭(기타법인)",
+    "stock_code": "상장회사인 경우 주식의 종목코드 (상장회사의 종목코드 6자리)",
+    "ceo_nm": "대표자명",
+    "corp_cls": COMMON_RETURN_FIELDS["corp_cls"],
+    "jurir_no": "법인등록번호",
+    "bizr_no": "사업자등록번호",
+    "adres": "주소",
+    "hm_url": "홈페이지",
+    "ir_url": "IR홈페이지",
+    "phn_no": "전화번호",
+    "fax_no": "팩스번호",
+    "induty_code": "업종코드",
+    "est_dt": "설립일 (YYYYMMDD)",
+    "acc_mt": "결산월 (MM)",
+}
+_CORPCODE_FIELDS: _FieldMap = {
+    "corp_code": COMMON_RETURN_FIELDS["corp_code"],
+    "corp_name": "정식명칭 (정식회사명칭)",
+    "corp_eng_name": "영문 정식명칭 (영문정식회사명칭)",
+    "stock_code": "종목코드 (상장회사인 경우 주식의 종목코드 6자리)",
+    "modify_date": "최종변경일자 (기업개황정보 최종변경일자 YYYYMMDD)",
+}
+
+LIST_RETURN_FIELDS_CATALOG: Dict[str, Dict] = {
+    "list": {
+        "description": "공시정보 검색",
+        "fields": _LIST_FIELDS,
+    },
+    "company": {
+        "description": "기업개황정보",
+        "fields": _COMPANY_FIELDS,
+    },
+    "corpCode": {
+        "description": "공시대상회사 고유번호",
+        "fields": _CORPCODE_FIELDS,
+    },
+}
+
+DART_RETURN_FIELDS_CATALOGS: Dict[str, Dict[str, Dict]] = {
+    "event": EVENT_RETURN_FIELDS_CATALOG,
+    "report": REPORT_RETURN_FIELDS_CATALOG,
+    "regstate": REGSTATE_RETURN_FIELDS_CATALOG,
+    "share": SHARE_RETURN_FIELDS_CATALOG,
+    "finstate": FINSTATE_RETURN_FIELDS_CATALOG,
+    "list": LIST_RETURN_FIELDS_CATALOG,
+}
+
+
+def list_dart_return_fields_catalog(catalog_name: str) -> Dict[str, str]:
+    """한 DART 카탈로그에 속한 아이템 목록과 각 설명을 조회합니다.
+    (ex. `catalog_name=event` returns: {"dfOcr": "부도발생", "piicDecsn": "유상증자 결정", ...})
+
+    각 카탈로그는 하나의 DART 서비스 그룹에 대응하며, 아이템 목록은 그 안의 개별 조회 단위입니다.
+    아이템의 의미는 카탈로그 종류에 따라 다릅니다:
+    - event/report/regstate: 단일 함수(event/report/regstate)의 함수 인자.
+      (ex. "dfOcr", "irdsSttus", "estkRs")
+    - share/finstate/list: 해당 서비스의 개별 함수 이름.
+      (ex. "majorstock", "fnlttAcnt", "company")
+
+    Args:
+        catalog_name: 카탈로그 이름. 다음 중 하나여야 합니다: event, report, regstate, share, finstate, list
+    """
+    try:
+        catalog = DART_RETURN_FIELDS_CATALOGS[catalog_name]
+    except KeyError as exc:
+        valid = sorted(DART_RETURN_FIELDS_CATALOGS)
+        raise ValueError(f"Unknown catalog_name: {catalog_name!r}. Valid values: {valid}") from exc
+
+    return {name: item["description"] for name, item in catalog.items()}
+
+
+def get_dart_return_fields(catalog_name: str, item_type: str) -> Dict:
+    """한 DART 카탈로그의 특정 아이템에 대한 반환 필드 메타데이터를 조회합니다.
+    (ex. `catalog_name=event, item_type=dfOcr` returns:
+     {"description": "부도발생", "fields": {"rcept_no": "접수번호(14자리)...", "df_cn": "부도내용", ...}})
+
+    DART API 응답 배열의 각 항목이 어떤 필드를 담는지, 각 필드가 무엇을 의미하는지 확인할 때 사용합니다.
+    사용 가능한 catalog_name/item_type 목록은 list_dart_return_fields_catalog()로 먼저 확인할 수 있습니다.
+
+    아이템의 의미는 카탈로그 종류에 따라 다릅니다:
+    - event/report/regstate: 단일 함수(event/report/regstate)의 함수 인자.
+      (ex. "dfOcr", "irdsSttus", "estkRs")
+    - share/finstate/list: 해당 서비스의 개별 함수 이름.
+      (ex. "majorstock", "fnlttAcnt", "company")
+
+    Args:
+        catalog_name: 카탈로그 이름. 다음 중 하나여야 합니다: event, report, regstate, share, finstate, list
+        item_type: 카탈로그 내 조회 단위. (ex. "dfOcr", "majorstock")
+    """
+    try:
+        catalog = DART_RETURN_FIELDS_CATALOGS[catalog_name]
+    except KeyError as exc:
+        valid = sorted(DART_RETURN_FIELDS_CATALOGS)
+        raise ValueError(f"Unknown catalog_name: {catalog_name!r}. Valid values: {valid}") from exc
+
+    try:
+        item = catalog[item_type]
+    except KeyError as exc:
+        valid = sorted(catalog)
+        raise ValueError(f"Unknown item_type: {item_type!r}. Valid values: {valid}") from exc
+
+    return item

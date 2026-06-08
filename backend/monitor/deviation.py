@@ -35,7 +35,7 @@ async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) ->
             "t8419InBlock": {
                 "shcode": upcode,
                 "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월)
-                "qrycnt": str(count),
+                "qrycnt": count,
                 "sdate": "",
                 "edate": "99999999",
                 "cts_date": "",
@@ -53,7 +53,7 @@ async def _fetch_stock_closes(client: LSClient, shcode: str, count: int = 60) ->
             "t8451InBlock": {
                 "shcode": shcode,
                 "gubun": "0",  # daily bars
-                "qrycnt": str(count),
+                "qrycnt": count,
                 "sdate": "",
                 "edate": "99999999",
                 "cts_date": "",
@@ -145,8 +145,13 @@ async def _run_eod_summary(client: LSClient, label: str = "장 마감") -> None:
 
 async def monitor_deviation() -> None:
     async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as client:
-        session_active = False
-        morning_summary_sent = False
+        try:
+            await _run_eod_summary(client, label="서비스 시작")
+        except Exception as e:
+            log.error("Startup summary error: %s", e)
+
+        session_active = is_market_hours()
+        morning_summary_sent = session_active
         while True:
             if not is_market_hours():
                 if session_active:
