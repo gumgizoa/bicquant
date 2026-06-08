@@ -45,5 +45,10 @@ async def get_bic_stocks() -> list:
     if not bic:
         raise ValueError("BIC condition not found in server condition list")
 
-    resp = await client.call("t1859", query_index=bic["query_index"])
+    try:
+        resp = await client.call("t1859", query_index=bic["query_index"])
+    except LSApiError as e:
+        if e.rsp_cd == "09000":  # 검색 결과가 없습니다 — no matching stocks
+            return []
+        raise
     return resp.body.get("t1859OutBlock1", [])

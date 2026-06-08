@@ -163,7 +163,7 @@ class LSClient:
         data = resp.json()
         rsp_cd = str(data.get("rsp_cd") or "")
         if rsp_cd and rsp_cd not in ("00000", "0"):
-            raise LSApiError(f"[{spec.code}] {rsp_cd}: {data.get('rsp_msg', '')}")
+            raise LSApiError(f"[{spec.code}] {rsp_cd}: {data.get('rsp_msg', '')}", rsp_cd=rsp_cd)
         return TRResponse(
             tr_cd=spec.code,
             rsp_cd=rsp_cd,
