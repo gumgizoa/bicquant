@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +63,7 @@ class LSClient:
         self._http = httpx.AsyncClient(base_url=_BASE_URL, timeout=30.0)
         self._catalog = catalog or default_catalog()
         self._mac = mac_address
+        self._last_call: dict[str, float] = {}
 
     async def __aenter__(self) -> "LSClient":
         return self
@@ -135,6 +138,13 @@ class LSClient:
         tr_cont: str = "N",
         tr_cont_key: str = "",
     ) -> TRResponse:
+        if spec.tps_limit:
+            min_interval = 1.0 / spec.tps_limit
+            elapsed = time.monotonic() - self._last_call.get(spec.code, 0.0)
+            if elapsed < min_interval:
+                await asyncio.sleep(min_interval - elapsed)
+        self._last_call[spec.code] = time.monotonic()
+
         token = await self._tokens.get()
         resp = await self._http.post(
             spec.url,
