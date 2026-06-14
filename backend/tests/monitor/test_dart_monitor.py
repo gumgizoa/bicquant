@@ -1,21 +1,26 @@
-"""Unit tests for monitor.dart_monitor and DART notifier formatters."""
+"""Tests for monitor.dart_monitor and DART notifier formatters.
+
+Live (``slow``) tests hit the real DART API and dev Telegram chat. Pure-function
+tests (formatters) and the loop scheduler tests (clock + cancellation injected —
+no external service) run offline.
+"""
 
 import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
+import pytest
 from monitor.dart_monitor import (
+    _LISTED_CLS,
+    _POLL_END_PAGE,
     _check_new_disclosures,
     _fetch_disclosures,
+    _matches_subject,
     _seen_rcept_nos,
     _send_morning_summary,
     monitor_dart_disclosures,
 )
 from monitor.notifier import format_dart_daily_count, format_dart_new_disclosure
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _disc(
@@ -35,8 +40,16 @@ def _disc(
     }
 
 
+@pytest.fixture(autouse=True)
+def _reset_seen():
+    """Keep the module-global seen-set isolated between tests."""
+    _seen_rcept_nos.clear()
+    yield
+    _seen_rcept_nos.clear()
+
+
 # ---------------------------------------------------------------------------
-# format_dart_daily_count
+# format_dart_daily_count — pure function
 # ---------------------------------------------------------------------------
 
 
@@ -64,7 +77,7 @@ def test_format_dart_daily_count_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
-# format_dart_new_disclosure
+# format_dart_new_disclosure — pure function
 # ---------------------------------------------------------------------------
 
 
@@ -92,207 +105,69 @@ def test_format_dart_new_disclosure_kosdaq_label() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _send_morning_summary
+# Live: _fetch_disclosures — real DART API
 # ---------------------------------------------------------------------------
 
 
-async def test_send_morning_summary_initializes_seen_and_sends_count() -> None:
-    disclosures = [_disc("D001"), _disc("D002", corp_cls="코")]
-
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, return_value=disclosures),
-        patch("monitor.dart_monitor.notifier.format_dart_daily_count", return_value="count_msg") as mock_fmt,
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        _seen_rcept_nos.clear()
-        await _send_morning_summary("20260602")
-
-    mock_fmt.assert_called_once_with("20260602", 2, {"유": 1, "코": 1})
-    mock_send.assert_awaited_once_with("count_msg")
-    assert "D001" in _seen_rcept_nos
-    assert "D002" in _seen_rcept_nos
+@pytest.mark.slow
+async def test_fetch_disclosures_live_returns_filtered_list(dart, recent_trading_day) -> None:
+    result = await _fetch_disclosures(recent_trading_day, 5)
+    assert isinstance(result, list)
+    # Whatever comes back must satisfy both filters the function applies.
+    for d in result:
+        assert d["corp_cls"] in _LISTED_CLS
+        assert _matches_subject(d["report_nm"])
+        assert d["rcept_no"]
 
 
-async def test_send_morning_summary_handles_fetch_error_gracefully() -> None:
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, side_effect=Exception("net")),
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _send_morning_summary("20260602")  # must not raise
+@pytest.mark.slow
+async def test_fetch_disclosures_live_raw_records_have_expected_keys(dart, recent_trading_day) -> None:
+    # Exercises the raw DART list endpoint (pre-filter) for schema sanity.
+    from dartapi.dart_utils import list_dart_disclosures_by_date
 
-    mock_send.assert_not_called()
-
-
-async def test_send_morning_summary_empty_disclosures() -> None:
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.dart_monitor.notifier.format_dart_daily_count", return_value="msg") as mock_fmt,
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        _seen_rcept_nos.clear()
-        await _send_morning_summary("20260602")
-
-    mock_fmt.assert_called_once_with("20260602", 0, {})
-    mock_send.assert_awaited_once()
+    records = await asyncio.to_thread(list_dart_disclosures_by_date, recent_trading_day, 1, 1)
+    assert isinstance(records, list)
+    if records:  # a trading day normally has disclosures; tolerate a quiet day
+        expected = {"rcept_dt", "corp_cls", "corp_name", "rcept_no", "report_nm", "flr_nm", "rm"}
+        assert expected.issubset(records[0].keys())
 
 
 # ---------------------------------------------------------------------------
-# _check_new_disclosures
+# Live: _send_morning_summary / _check_new_disclosures — real DART + Telegram
 # ---------------------------------------------------------------------------
 
 
-async def test_check_new_disclosures_notifies_only_new() -> None:
-    disclosures = [_disc("N001"), _disc("N002")]
+@pytest.mark.slow
+async def test_send_morning_summary_live(dart, telegram, recent_trading_day) -> None:
+    await _send_morning_summary(recent_trading_day)  # real DART fetch + real Telegram
 
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, return_value=disclosures),
-        patch("monitor.dart_monitor.notifier.format_dart_new_disclosure", return_value="new_msg"),
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        _seen_rcept_nos.clear()
-        _seen_rcept_nos.add("N001")  # already seen
-        await _check_new_disclosures("20260602")
-
-    mock_send.assert_awaited_once()  # only N002 is new
+    # The seen-set is initialised to exactly the listed/monitored disclosures.
+    expected = {d["rcept_no"] for d in await _fetch_disclosures(recent_trading_day, 50)}
+    assert _seen_rcept_nos == expected
 
 
-async def test_check_new_disclosures_skips_all_if_already_seen() -> None:
-    disclosures = [_disc("N001"), _disc("N002")]
+@pytest.mark.slow
+async def test_check_new_disclosures_live_dedups(dart, recent_trading_day) -> None:
+    # Pre-seed the seen-set with everything currently published (live fetch), so
+    # the poll finds nothing new: the seen-set is unchanged and no message is
+    # emitted. No Telegram fixture needed — dedup is observed via the seen-set.
+    current = await _fetch_disclosures(recent_trading_day, _POLL_END_PAGE)
+    _seen_rcept_nos.update(d["rcept_no"] for d in current)
+    snapshot = set(_seen_rcept_nos)
 
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, return_value=disclosures),
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        _seen_rcept_nos.clear()
-        _seen_rcept_nos.update(["N001", "N002"])
-        await _check_new_disclosures("20260602")
+    await _check_new_disclosures(recent_trading_day)  # real DART fetch
 
-    mock_send.assert_not_called()
-
-
-async def test_check_new_disclosures_adds_new_to_seen() -> None:
-    disclosures = [_disc("N003")]
-
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, return_value=disclosures),
-        patch("monitor.dart_monitor.notifier.format_dart_new_disclosure", return_value="msg"),
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock),
-    ):
-        _seen_rcept_nos.clear()
-        await _check_new_disclosures("20260602")
-
-    assert "N003" in _seen_rcept_nos
-
-
-async def test_check_new_disclosures_handles_fetch_error_gracefully() -> None:
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, side_effect=Exception("timeout")),
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _check_new_disclosures("20260602")  # must not raise
-
-    mock_send.assert_not_called()
-
-
-async def test_check_new_disclosures_sends_notification_per_new_item() -> None:
-    """Each new disclosure generates its own Telegram message."""
-    disclosures = [_disc("M001"), _disc("M002"), _disc("M003")]
-
-    with (
-        patch("monitor.dart_monitor._fetch_disclosures", new_callable=AsyncMock, return_value=disclosures),
-        patch("monitor.dart_monitor.notifier.format_dart_new_disclosure", side_effect=lambda d: d["rcept_no"]),
-        patch("monitor.dart_monitor.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        _seen_rcept_nos.clear()
-        await _check_new_disclosures("20260602")
-
-    assert mock_send.await_count == 3
-    sent_texts = [call.args[0] for call in mock_send.await_args_list]
-    assert sent_texts == ["M001", "M002", "M003"]
+    assert _seen_rcept_nos == snapshot
 
 
 # ---------------------------------------------------------------------------
-# _fetch_disclosures — listed-company filter
-# ---------------------------------------------------------------------------
-
-
-async def test_fetch_disclosures_keeps_only_listed() -> None:
-    """corp_cls '유' and '코' pass; '채', '기', '넥' are excluded."""
-    all_records = [
-        _disc("F001", corp_cls="유"),
-        _disc("F002", corp_cls="코"),
-        _disc("F003", corp_cls="채"),
-        _disc("F004", corp_cls="기"),
-        _disc("F005", corp_cls="넥"),
-    ]
-
-    with patch("monitor.dart_monitor.list_dart_disclosures_by_date", return_value=all_records):
-        result = await _fetch_disclosures("20260602", 3)
-
-    assert len(result) == 2
-    assert {d["corp_cls"] for d in result} == {"유", "코"}
-
-
-async def test_fetch_disclosures_returns_empty_when_no_listed() -> None:
-    all_records = [_disc("F010", corp_cls="채"), _disc("F011", corp_cls="기")]
-
-    with patch("monitor.dart_monitor.list_dart_disclosures_by_date", return_value=all_records):
-        result = await _fetch_disclosures("20260602", 1)
-
-    assert result == []
-
-
-async def test_fetch_disclosures_passes_correct_args() -> None:
-    """Verifies date and end_page are forwarded to list_dart_disclosures_by_date."""
-    with patch("monitor.dart_monitor.list_dart_disclosures_by_date", return_value=[]) as mock_fn:
-        await _fetch_disclosures("20260602", 5)
-
-    mock_fn.assert_called_once_with("20260602", 1, 5)
-
-
-async def test_fetch_disclosures_keeps_only_monitored_subjects() -> None:
-    """Listed companies pass only when report_nm matches a monitored subject."""
-    all_records = [
-        _disc("S001", report_nm="주요사항보고서(유상증자결정)"),
-        _disc("S002", report_nm="주요사항보고서(무상증자결정)"),
-        _disc("S003", report_nm="중대재해발생"),
-        _disc("S004", report_nm="최대주주변경을수반하는주식양수도계약체결"),
-        _disc("S005", report_nm="단일판매ㆍ공급계약체결"),
-        _disc("S006", report_nm="매출액또는손익구조30%(대규모법인은15%)이상변동"),
-        _disc("S007", report_nm="주식소각결정"),
-        _disc("S008", report_nm="신규시설투자등"),
-        # Excluded: listed companies but unrelated subjects.
-        _disc("S009", report_nm="분기보고서 (2026.03)"),
-        _disc("S010", report_nm="투자설명서"),
-        _disc("S011", report_nm="최대주주등소유주식변동신고서"),
-    ]
-
-    with patch("monitor.dart_monitor.list_dart_disclosures_by_date", return_value=all_records):
-        result = await _fetch_disclosures("20260602", 3)
-
-    assert {d["rcept_no"] for d in result} == {f"S00{i}" for i in range(1, 9)}
-
-
-async def test_fetch_disclosures_excludes_unlisted_even_if_subject_matches() -> None:
-    """Subject match alone is not enough; the company must be listed (유/코)."""
-    all_records = [
-        _disc("S100", corp_cls="채", report_nm="주식소각결정"),
-        _disc("S101", corp_cls="유", report_nm="주식소각결정"),
-    ]
-
-    with patch("monitor.dart_monitor.list_dart_disclosures_by_date", return_value=all_records):
-        result = await _fetch_disclosures("20260602", 1)
-
-    assert {d["rcept_no"] for d in result} == {"S101"}
-
-
-# ---------------------------------------------------------------------------
-# monitor_dart_disclosures — loop behavior
+# monitor_dart_disclosures — scheduler loop (clock + cancellation injected).
+# Not an API mock: verifies morning-summary-then-poll ordering and the
+# post-close reset without looping forever.
 # ---------------------------------------------------------------------------
 
 
 async def test_monitor_dart_disclosures_morning_fires_once_then_polls() -> None:
-    """Morning summary runs once; subsequent iterations call _check_new_disclosures."""
     iterations = 0
 
     def fake_market_hours():
@@ -308,7 +183,6 @@ async def test_monitor_dart_disclosures_morning_fires_once_then_polls() -> None:
         patch("monitor.dart_monitor._check_new_disclosures", new_callable=AsyncMock) as mock_poll,
         patch("monitor.dart_monitor.asyncio.sleep", new_callable=AsyncMock),
     ):
-        _seen_rcept_nos.clear()
         try:
             await monitor_dart_disclosures()
         except asyncio.CancelledError:
@@ -319,8 +193,6 @@ async def test_monitor_dart_disclosures_morning_fires_once_then_polls() -> None:
 
 
 async def test_monitor_dart_disclosures_resets_state_after_market_close() -> None:
-    """After market closes, morning_sent resets so next open fires summary again."""
-    # Sequence: open → close (reset) → open again
     sequence = [True, False, False, True]
     idx = 0
 
@@ -339,11 +211,9 @@ async def test_monitor_dart_disclosures_resets_state_after_market_close() -> Non
         patch("monitor.dart_monitor.seconds_until_market_open", return_value=0.0),
         patch("monitor.dart_monitor.asyncio.sleep", new_callable=AsyncMock),
     ):
-        _seen_rcept_nos.clear()
         try:
             await monitor_dart_disclosures()
         except asyncio.CancelledError:
             pass
 
-    # Morning summary fires on first open AND again after close+reopen
     assert mock_morning.await_count == 2

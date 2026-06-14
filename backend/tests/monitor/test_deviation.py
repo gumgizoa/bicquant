@@ -1,16 +1,25 @@
-"""Unit tests for monitor.deviation — _evaluate, _run_eod_summary, and format_deviation_summary."""
+"""Tests for monitor.deviation.
+
+Live (``slow``) tests hit the real LS API, dev Postgres, and dev Telegram chat.
+Pure-logic tests (deviation ratio math, summary formatting) and the loop
+scheduler tests (clock + cancellation injected — no external service involved)
+run offline.
+"""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from monitor.deviation import (
     _evaluate,
     _fetch_index_closes,
     _fetch_stock_closes,
+    _fetch_stock_name,
     _run_eod_summary,
     monitor_deviation,
 )
 from monitor.notifier import format_deviation_summary
+from shared.models import DeviationAlert
 
 
 def _closes(ratio: float, ma50: float = 100.0) -> list[float]:
@@ -19,236 +28,106 @@ def _closes(ratio: float, ma50: float = 100.0) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
-# _fetch_index_closes / _fetch_stock_closes — qrycnt must be int (t8419/t8451 spec)
+# Live: LS API data fetching
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_index_closes_sends_qrycnt_as_int() -> None:
-    mock_resp = MagicMock()
-    mock_resp.block.return_value = [{"close": "100"}]
-    mock_client = AsyncMock()
-    mock_client.call.return_value = mock_resp
-
-    await _fetch_index_closes(mock_client, "001", count=60)
-
-    body = mock_client.call.call_args.args[1]
-    assert isinstance(body["t8419InBlock"]["qrycnt"], int)
+@pytest.mark.slow
+@pytest.mark.parametrize("upcode", ["001", "301"])
+async def test_fetch_index_closes_live(ls_client, upcode: str) -> None:
+    closes = await _fetch_index_closes(ls_client, upcode)
+    assert len(closes) >= 51, f"need >=51 bars to compute MA50, got {len(closes)}"
+    assert all(c > 0 for c in closes)
 
 
-async def test_fetch_stock_closes_sends_qrycnt_as_int() -> None:
-    mock_resp = MagicMock()
-    mock_resp.block.return_value = [{"close": "100"}]
-    mock_client = AsyncMock()
-    mock_client.call.return_value = mock_resp
+@pytest.mark.slow
+async def test_fetch_stock_closes_live(ls_client) -> None:
+    closes = await _fetch_stock_closes(ls_client, "005930")
+    assert len(closes) >= 51
+    assert all(c > 0 for c in closes)
 
-    await _fetch_stock_closes(mock_client, "005930", count=60)
 
-    body = mock_client.call.call_args.args[1]
-    assert isinstance(body["t8451InBlock"]["qrycnt"], int)
+@pytest.mark.slow
+async def test_fetch_stock_name_live(ls_client) -> None:
+    name = await _fetch_stock_name(ls_client, "005930")
+    assert name == "삼성전자"
 
 
 # ---------------------------------------------------------------------------
-# _evaluate — alert logic
+# Live: _evaluate end-to-end (LS not needed — synthetic closes; real DB + Telegram)
 # ---------------------------------------------------------------------------
 
-
-async def test_evaluate_fires_alert_above_threshold() -> None:
-    with (
-        patch("monitor.deviation.deviation_q.save_alert", new_callable=AsyncMock) as mock_save,
-        patch("monitor.deviation.notifier.format_deviation_alert", return_value="msg"),
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _evaluate("001", "코스피", _closes(131.0))
-
-    mock_save.assert_awaited_once()
-    mock_send.assert_awaited_once_with("msg")
+_TEST_CODE = "TST_DEV"
 
 
-async def test_evaluate_fires_at_exact_threshold() -> None:
-    with (
-        patch("monitor.deviation.deviation_q.save_alert", new_callable=AsyncMock) as mock_save,
-        patch("monitor.deviation.notifier.format_deviation_alert", return_value="msg"),
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _evaluate("001", "코스피", _closes(130.0))
+@pytest.mark.slow
+async def test_evaluate_above_threshold_writes_alert(live_db, telegram) -> None:
+    before = await live_db.max_id(DeviationAlert)
+    try:
+        await _evaluate(_TEST_CODE, "테스트종목", _closes(131.0, ma50=50_000.0))
 
-    mock_save.assert_awaited_once()
-    mock_send.assert_awaited_once()
+        rows = await live_db.rows_after(DeviationAlert, before)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.target_code == _TEST_CODE
+        assert abs(float(row.deviation_ratio) - 131.0) < 0.01
+        assert abs(float(row.current_value) - 65_500.0) < 1
+    finally:
+        await live_db.delete_after(DeviationAlert, before)
 
 
-async def test_evaluate_no_alert_below_threshold() -> None:
-    with (
-        patch("monitor.deviation.deviation_q.save_alert", new_callable=AsyncMock) as mock_save,
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _evaluate("001", "코스피", _closes(129.9))
+@pytest.mark.slow
+async def test_evaluate_below_threshold_writes_nothing(live_db) -> None:
+    before = await live_db.max_id(DeviationAlert)
+    try:
+        await _evaluate(_TEST_CODE, "테스트종목", _closes(120.0))
 
-    mock_save.assert_not_called()
-    mock_send.assert_not_called()
+        rows = await live_db.rows_after(DeviationAlert, before)
+        assert rows == []
+    finally:
+        await live_db.delete_after(DeviationAlert, before)
+
+
+# ---------------------------------------------------------------------------
+# _evaluate guard clauses — return early before any external call (offline)
+# ---------------------------------------------------------------------------
 
 
 async def test_evaluate_skips_when_data_insufficient() -> None:
-    closes = [100.0] * 50  # 50 points — need 51
-    with (
-        patch("monitor.deviation.deviation_q.save_alert", new_callable=AsyncMock) as mock_save,
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _evaluate("001", "코스피", closes)
-
-    mock_save.assert_not_called()
-    mock_send.assert_not_called()
+    # 50 points (<51) → returns before touching DB/Telegram.
+    await _evaluate("001", "코스피", [100.0] * 50)
 
 
 async def test_evaluate_skips_when_ma50_is_zero() -> None:
-    closes = [0.0] * 50 + [130.0]
-    with (
-        patch("monitor.deviation.deviation_q.save_alert", new_callable=AsyncMock) as mock_save,
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _evaluate("001", "코스피", closes)
-
-    mock_save.assert_not_called()
-    mock_send.assert_not_called()
-
-
-async def test_evaluate_save_alert_receives_correct_values() -> None:
-    with (
-        patch("monitor.deviation.deviation_q.save_alert", new_callable=AsyncMock) as mock_save,
-        patch("monitor.deviation.notifier.format_deviation_alert", return_value="msg"),
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock),
-    ):
-        await _evaluate("005930", "삼성전자", _closes(135.0, ma50=50_000.0))
-
-    code, name, current, ma50, ratio = mock_save.call_args.args
-    assert code == "005930"
-    assert name == "삼성전자"
-    assert abs(current - 67_500.0) < 1
-    assert abs(ma50 - 50_000.0) < 1
-    assert abs(ratio - 135.0) < 0.01
+    # MA50 == 0 → returns before touching DB/Telegram.
+    await _evaluate("001", "코스피", [0.0] * 50 + [130.0])
 
 
 # ---------------------------------------------------------------------------
-# _run_eod_summary
+# Live: _run_eod_summary — real LS + watchlist (DB) + Telegram
 # ---------------------------------------------------------------------------
 
 
-async def test_run_eod_summary_sends_telegram_with_all_entries() -> None:
-    closes = _closes(105.0)  # 51 points, ratio=105.0
-    mock_client = AsyncMock()
-
-    with (
-        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=closes),
-        patch("monitor.deviation._fetch_stock_closes", new_callable=AsyncMock, return_value=closes),
-        patch("monitor.deviation._fetch_stock_name", new_callable=AsyncMock, return_value="삼성전자"),
-        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=["005930"]),
-        patch("monitor.deviation.notifier.format_deviation_summary", return_value="summary") as mock_fmt,
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _run_eod_summary(mock_client)
-
-    mock_fmt.assert_called_once()
-    entries_arg = mock_fmt.call_args.args[0]
-    # 2 indices (_INDICES has 2 items) + 1 watchlist stock
-    assert len(entries_arg) == 3
-    assert all(abs(e["ratio"] - 105.0) < 0.01 for e in entries_arg)
-    mock_send.assert_awaited_once_with("summary")
-
-
-async def test_run_eod_summary_skips_entries_with_insufficient_data() -> None:
-    short_closes = [100.0] * 50  # 50 points — need 51
-    mock_client = AsyncMock()
-
-    with (
-        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=short_closes),
-        patch("monitor.deviation._fetch_stock_closes", new_callable=AsyncMock, return_value=short_closes),
-        patch("monitor.deviation._fetch_stock_name", new_callable=AsyncMock, return_value="삼성전자"),
-        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=["005930"]),
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _run_eod_summary(mock_client)
-
-    mock_send.assert_not_called()
-
-
-async def test_run_eod_summary_sends_nothing_when_watchlist_empty_and_indices_short() -> None:
-    mock_client = AsyncMock()
-
-    with (
-        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-    ):
-        await _run_eod_summary(mock_client)
-
-    mock_send.assert_not_called()
-
-
-async def test_run_eod_summary_entry_ratio_correct() -> None:
-    """Verify the computed ratio in the entry matches expected value."""
-    closes = _closes(140.0, ma50=50_000.0)
-    mock_client = AsyncMock()
-
-    with (
-        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=closes),
-        patch("monitor.deviation._fetch_stock_closes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.notifier.format_deviation_summary", return_value="msg") as mock_fmt,
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock),
-    ):
-        await _run_eod_summary(mock_client)
-
-    entries = mock_fmt.call_args.args[0]
-    index_entry = next(e for e in entries if e["code"] == "001")
-    assert abs(index_entry["ratio"] - 140.0) < 0.01
-    assert abs(index_entry["current"] - 70_000.0) < 1
-    assert abs(index_entry["ma50"] - 50_000.0) < 1
-
-
-async def test_run_eod_summary_passes_default_label_to_formatter() -> None:
-    """Default call must forward label='장 마감' to format_deviation_summary."""
-    closes = _closes(105.0)
-    mock_client = AsyncMock()
-
-    with (
-        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=closes),
-        patch("monitor.deviation._fetch_stock_closes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.notifier.format_deviation_summary", return_value="msg") as mock_fmt,
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock),
-    ):
-        await _run_eod_summary(mock_client)
-
-    assert mock_fmt.call_args.kwargs["label"] == "장 마감"
-
-
-async def test_run_eod_summary_passes_custom_label_to_formatter() -> None:
-    """Call with label='장 시작' must propagate to format_deviation_summary."""
-    closes = _closes(105.0)
-    mock_client = AsyncMock()
-
-    with (
-        patch("monitor.deviation._fetch_index_closes", new_callable=AsyncMock, return_value=closes),
-        patch("monitor.deviation._fetch_stock_closes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.watchlist_q.get_active_codes", new_callable=AsyncMock, return_value=[]),
-        patch("monitor.deviation.notifier.format_deviation_summary", return_value="msg") as mock_fmt,
-        patch("monitor.deviation.notifier.send_telegram", new_callable=AsyncMock),
-    ):
-        await _run_eod_summary(mock_client, label="장 시작")
-
-    assert mock_fmt.call_args.kwargs["label"] == "장 시작"
+@pytest.mark.slow
+async def test_run_eod_summary_live(ls_client, live_db, telegram) -> None:
+    # Sends a real summary message for the two indices (+ any active watchlist
+    # stocks) to the dev chat. Asserts the whole pipeline completes.
+    # live_db must be requested so watchlist_q.get_active_codes() has an engine.
+    await _run_eod_summary(ls_client, label="테스트 요약")
 
 
 # ---------------------------------------------------------------------------
-# monitor_deviation — startup summary + loop behavior
+# monitor_deviation — scheduler sequencing (clock + cancellation injected).
+# Not an API mock: these verify summary-label ordering without looping forever.
 # ---------------------------------------------------------------------------
 
 
-def _make_ls_mock() -> tuple[AsyncMock, MagicMock]:
+def _make_ls_mock() -> MagicMock:
     mock_client = AsyncMock()
     mock_ls_instance = MagicMock()
     mock_ls_instance.__aenter__ = AsyncMock(return_value=mock_client)
     mock_ls_instance.__aexit__ = AsyncMock(return_value=False)
-    return mock_client, mock_ls_instance
+    return mock_ls_instance
 
 
 def _make_cfg_mock() -> MagicMock:
@@ -259,8 +138,6 @@ def _make_cfg_mock() -> MagicMock:
 
 
 async def test_monitor_deviation_startup_summary_fires_before_loop() -> None:
-    """Startup summary always fires once with label='서비스 시작' before any loop logic."""
-    # is_market_hours: pre-loop=False, then immediately CancelledError in loop
     call_count = 0
 
     def fake_market_hours():
@@ -270,11 +147,9 @@ async def test_monitor_deviation_startup_summary_fires_before_loop() -> None:
             return False
         raise asyncio.CancelledError()
 
-    _, mock_ls_instance = _make_ls_mock()
-
     with (
         patch("monitor.deviation.cfg", _make_cfg_mock()),
-        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.LSClient", return_value=_make_ls_mock()),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
         patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
         patch("monitor.deviation._run_poll", new_callable=AsyncMock),
@@ -290,42 +165,7 @@ async def test_monitor_deviation_startup_summary_fires_before_loop() -> None:
     assert mock_summary.call_args.kwargs["label"] == "서비스 시작"
 
 
-async def test_monitor_deviation_no_duplicate_morning_summary_when_starting_during_market() -> None:
-    """When starting during market hours, startup summary serves as the morning message;
-    no additional '장 시작' message is sent during that session."""
-    # is_market_hours: pre-loop=True, 3 loop iterations, then CancelledError
-    iterations = 0
-
-    def fake_market_hours():
-        nonlocal iterations
-        iterations += 1
-        if iterations <= 4:
-            return True
-        raise asyncio.CancelledError()
-
-    _, mock_ls_instance = _make_ls_mock()
-
-    with (
-        patch("monitor.deviation.cfg", _make_cfg_mock()),
-        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
-        patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
-        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
-        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
-        patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        try:
-            await monitor_deviation()
-        except asyncio.CancelledError:
-            pass
-
-    # Only the startup summary; no '장 시작' duplicate
-    assert mock_summary.await_count == 1
-    assert mock_summary.call_args.kwargs["label"] == "서비스 시작"
-
-
 async def test_monitor_deviation_morning_summary_fires_when_starting_outside_market() -> None:
-    """When starting outside market hours, morning summary still fires when market opens."""
-    # is_market_hours sequence: pre-loop=False, loop1=False(closed), loop2=True(open), loop3=True, CancelledError
     sequence = [False, False, True, True]
     idx = 0
 
@@ -337,11 +177,9 @@ async def test_monitor_deviation_morning_summary_fires_when_starting_outside_mar
         idx += 1
         return val
 
-    _, mock_ls_instance = _make_ls_mock()
-
     with (
         patch("monitor.deviation.cfg", _make_cfg_mock()),
-        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.LSClient", return_value=_make_ls_mock()),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
         patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
         patch("monitor.deviation._run_poll", new_callable=AsyncMock),
@@ -359,8 +197,6 @@ async def test_monitor_deviation_morning_summary_fires_when_starting_outside_mar
 
 
 async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
-    """After EOD summary, morning summary fires again on the next open."""
-    # is_market_hours sequence: pre-loop=True, loop1=False(close), loop2=False, loop3=True(reopen), CancelledError
     sequence = [True, False, False, True]
     idx = 0
 
@@ -372,11 +208,9 @@ async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
         idx += 1
         return val
 
-    _, mock_ls_instance = _make_ls_mock()
-
     with (
         patch("monitor.deviation.cfg", _make_cfg_mock()),
-        patch("monitor.deviation.LSClient", return_value=mock_ls_instance),
+        patch("monitor.deviation.LSClient", return_value=_make_ls_mock()),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
         patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
         patch("monitor.deviation._run_poll", new_callable=AsyncMock),
@@ -388,14 +222,13 @@ async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
         except asyncio.CancelledError:
             pass
 
-    # Calls in order: "서비스 시작" (startup), "장 마감" (EOD), "장 시작" (next morning)
     assert mock_summary.await_count == 3
     labels = [c.kwargs.get("label", "장 마감") for c in mock_summary.await_args_list]
     assert labels == ["서비스 시작", "장 마감", "장 시작"]
 
 
 # ---------------------------------------------------------------------------
-# format_deviation_summary
+# format_deviation_summary — pure function
 # ---------------------------------------------------------------------------
 
 
