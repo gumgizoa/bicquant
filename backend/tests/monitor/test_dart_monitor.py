@@ -18,12 +18,17 @@ from monitor.notifier import format_dart_daily_count, format_dart_new_disclosure
 # ---------------------------------------------------------------------------
 
 
-def _disc(rcept_no: str, corp_cls: str = "유", corp_name: str = "삼성전자") -> dict:
+def _disc(
+    rcept_no: str,
+    corp_cls: str = "유",
+    corp_name: str = "삼성전자",
+    report_nm: str = "주요사항보고서(유상증자결정)",
+) -> dict:
     return {
         "rcept_no": rcept_no,
         "corp_cls": corp_cls,
         "corp_name": corp_name,
-        "report_nm": "주요사항보고서",
+        "report_nm": report_nm,
         "flr_nm": corp_name,
         "rcept_dt": pd.Timestamp("2026-06-02 09:30"),
         "rm": "",
@@ -243,6 +248,42 @@ async def test_fetch_disclosures_passes_correct_args() -> None:
         await _fetch_disclosures("20260602", 5)
 
     mock_fn.assert_called_once_with("20260602", 1, 5)
+
+
+async def test_fetch_disclosures_keeps_only_monitored_subjects() -> None:
+    """Listed companies pass only when report_nm matches a monitored subject."""
+    all_records = [
+        _disc("S001", report_nm="주요사항보고서(유상증자결정)"),
+        _disc("S002", report_nm="주요사항보고서(무상증자결정)"),
+        _disc("S003", report_nm="중대재해발생"),
+        _disc("S004", report_nm="최대주주변경을수반하는주식양수도계약체결"),
+        _disc("S005", report_nm="단일판매ㆍ공급계약체결"),
+        _disc("S006", report_nm="매출액또는손익구조30%(대규모법인은15%)이상변동"),
+        _disc("S007", report_nm="주식소각결정"),
+        _disc("S008", report_nm="신규시설투자등"),
+        # Excluded: listed companies but unrelated subjects.
+        _disc("S009", report_nm="분기보고서 (2026.03)"),
+        _disc("S010", report_nm="투자설명서"),
+        _disc("S011", report_nm="최대주주등소유주식변동신고서"),
+    ]
+
+    with patch("monitor.dart_monitor.list_dart_disclosures_by_date", return_value=all_records):
+        result = await _fetch_disclosures("20260602", 3)
+
+    assert {d["rcept_no"] for d in result} == {f"S00{i}" for i in range(1, 9)}
+
+
+async def test_fetch_disclosures_excludes_unlisted_even_if_subject_matches() -> None:
+    """Subject match alone is not enough; the company must be listed (유/코)."""
+    all_records = [
+        _disc("S100", corp_cls="채", report_nm="주식소각결정"),
+        _disc("S101", corp_cls="유", report_nm="주식소각결정"),
+    ]
+
+    with patch("monitor.dart_monitor.list_dart_disclosures_by_date", return_value=all_records):
+        result = await _fetch_disclosures("20260602", 1)
+
+    assert {d["rcept_no"] for d in result} == {"S101"}
 
 
 # ---------------------------------------------------------------------------

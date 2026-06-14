@@ -23,9 +23,39 @@ log = logging.getLogger(__name__)
 _KST = zoneinfo.ZoneInfo("Asia/Seoul")
 _LISTED_CLS = frozenset({"유", "코"})
 
+# Only disclosures whose report name (report_nm) contains one of these substrings
+# are notified. Keywords are intentionally broad enough to also catch the
+# correction ([기재정정]/[첨부정정]), 자율공시, and 자회사/종속회사 variants of each
+# subject, while staying specific enough to exclude unrelated filings.
+#   - 증자(유상/무상/유무상)결정       -> "증자결정"
+#   - 중대재해발생                      -> "중대재해발생"
+#   - 최대주주변경                      -> "최대주주변경"
+#   - 단일판매ㆍ공급계약체결 / 수주      -> "공급계약체결", "수주"
+#   - 매출액또는손익구조30%이상변동     -> "손익구조"
+#   - 주식소각결정                      -> "주식소각"
+#   - 신규시설투자등                    -> "신규시설투자"
+_SUBJECT_KEYWORDS = frozenset(
+    {
+        "증자결정",
+        "중대재해발생",
+        "최대주주변경",
+        "공급계약체결",
+        "수주",
+        "손익구조",
+        "주식소각",
+        "신규시설투자",
+    }
+)
+
 _POLL_INTERVAL = 600  # 10 minutes
 _MORNING_END_PAGE = 50  # enough to cover all pre-market disclosures
 _POLL_END_PAGE = 3  # newest disclosures always appear on the first pages
+
+
+def _matches_subject(report_nm: str) -> bool:
+    """Return True if report_nm relates to one of the monitored disclosure subjects."""
+    return any(kw in report_nm for kw in _SUBJECT_KEYWORDS)
+
 
 # Tracks rcept_no values already notified; cleared on each market close.
 _seen_rcept_nos: set[str] = set()
@@ -39,10 +69,11 @@ async def _fetch_disclosures(date_str: str, end_page: int) -> list[dict]:
         end_page: Maximum page to fetch; function stops earlier if no data found.
 
     Returns:
-        Filtered list of disclosure dicts (listed companies only).
+        Filtered list of disclosure dicts: listed companies whose report name
+        matches one of the monitored subjects (see _SUBJECT_KEYWORDS).
     """
     all_disclosures = await asyncio.to_thread(list_dart_disclosures_by_date, date_str, 1, end_page)
-    return [d for d in all_disclosures if d.get("corp_cls") in _LISTED_CLS]
+    return [d for d in all_disclosures if d.get("corp_cls") in _LISTED_CLS and _matches_subject(d.get("report_nm", ""))]
 
 
 async def _send_morning_summary(date_str: str) -> None:
