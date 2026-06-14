@@ -116,9 +116,10 @@ async def monitor_sidecar() -> None:
             log.info("Market session ended. Disconnecting.")
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as e:
             # WebSocket drops, token refresh failures, and transient network
             # errors are expected over a long session — reconnect rather than
             # letting the exception bubble up and crash the monitor process.
             log.exception("Sidecar WebSocket error; reconnecting in %.0fs", _RECONNECT_DELAY)
+            await notifier.notify_service_error(f"Sidecar WebSocket; reconnecting in {_RECONNECT_DELAY:.0f}s", e)
             await asyncio.sleep(_RECONNECT_DELAY)

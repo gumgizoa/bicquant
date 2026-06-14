@@ -1,4 +1,4 @@
-"""Tests for monitor.dart_monitor and DART notifier formatters.
+"""Tests for monitor.dart and DART notifier formatters.
 
 Live (``slow``) tests hit the real DART API and dev Telegram chat. Pure-function
 tests (formatters) and the loop scheduler tests (clock + cancellation injected —
@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 import pytest
-from monitor.dart_monitor import (
+from monitor.dart import (
     _LISTED_CLS,
     _POLL_END_PAGE,
     _check_new_disclosures,
@@ -75,13 +75,13 @@ def _reset_seen():
     ],
 )
 def test_is_dart_disclosure_hours(dt: datetime.datetime, expected: bool) -> None:
-    with patch("monitor.dart_monitor._now_kst", return_value=dt):
+    with patch("monitor.dart._now_kst", return_value=dt):
         assert _is_dart_disclosure_hours() is expected
 
 
 def test_seconds_until_dart_open_before_open_same_day() -> None:
     now = _kst(2024, 1, 1, 7, 0)
-    with patch("monitor.dart_monitor._now_kst", return_value=now):
+    with patch("monitor.dart._now_kst", return_value=now):
         secs = _seconds_until_dart_open()
     assert abs(secs - 1800) < 1
 
@@ -89,7 +89,7 @@ def test_seconds_until_dart_open_before_open_same_day() -> None:
 def test_seconds_until_dart_open_after_close_skips_weekend() -> None:
     now = _kst(2024, 1, 5, 18, 1)
     expected = (_kst(2024, 1, 8, 7, 30) - now).total_seconds()
-    with patch("monitor.dart_monitor._now_kst", return_value=now):
+    with patch("monitor.dart._now_kst", return_value=now):
         secs = _seconds_until_dart_open()
     assert abs(secs - expected) < 1
 
@@ -224,10 +224,10 @@ async def test_monitor_dart_disclosures_morning_fires_once_then_polls() -> None:
         raise asyncio.CancelledError()
 
     with (
-        patch("monitor.dart_monitor._is_dart_disclosure_hours", side_effect=fake_market_hours),
-        patch("monitor.dart_monitor._send_morning_summary", new_callable=AsyncMock) as mock_morning,
-        patch("monitor.dart_monitor._check_new_disclosures", new_callable=AsyncMock) as mock_poll,
-        patch("monitor.dart_monitor.asyncio.sleep", new_callable=AsyncMock),
+        patch("monitor.dart._is_dart_disclosure_hours", side_effect=fake_market_hours),
+        patch("monitor.dart._send_morning_summary", new_callable=AsyncMock) as mock_morning,
+        patch("monitor.dart._check_new_disclosures", new_callable=AsyncMock) as mock_poll,
+        patch("monitor.dart.asyncio.sleep", new_callable=AsyncMock),
     ):
         try:
             await monitor_dart_disclosures()
@@ -251,11 +251,11 @@ async def test_monitor_dart_disclosures_resets_state_after_market_close() -> Non
         return val
 
     with (
-        patch("monitor.dart_monitor._is_dart_disclosure_hours", side_effect=fake_market_hours),
-        patch("monitor.dart_monitor._send_morning_summary", new_callable=AsyncMock) as mock_morning,
-        patch("monitor.dart_monitor._check_new_disclosures", new_callable=AsyncMock),
-        patch("monitor.dart_monitor._seconds_until_dart_open", return_value=0.0),
-        patch("monitor.dart_monitor.asyncio.sleep", new_callable=AsyncMock),
+        patch("monitor.dart._is_dart_disclosure_hours", side_effect=fake_market_hours),
+        patch("monitor.dart._send_morning_summary", new_callable=AsyncMock) as mock_morning,
+        patch("monitor.dart._check_new_disclosures", new_callable=AsyncMock),
+        patch("monitor.dart._seconds_until_dart_open", return_value=0.0),
+        patch("monitor.dart.asyncio.sleep", new_callable=AsyncMock),
     ):
         try:
             await monitor_dart_disclosures()

@@ -18,7 +18,8 @@ from collections.abc import Awaitable, Callable
 
 from shared import db
 
-from monitor.dart_monitor import monitor_dart_disclosures
+from monitor import notifier
+from monitor.dart import monitor_dart_disclosures
 from monitor.deviation import monitor_deviation
 from monitor.sidecar import monitor_sidecar
 
@@ -51,8 +52,9 @@ async def _supervise(
         except asyncio.CancelledError:
             log.info("monitor task %r cancelled", name)
             raise
-        except Exception:
+        except Exception as e:
             log.exception("monitor task %r crashed; restarting in %.0fs", name, delay)
+            await notifier.notify_service_error(f"monitor task '{name}' crashed; restarting in {delay:.0f}s", e)
             await asyncio.sleep(delay)
             delay = min(delay * 2, max_delay)
             continue

@@ -1,4 +1,6 @@
 import logging
+import traceback
+from html import escape
 
 import httpx
 from shared.config import get_config
@@ -40,6 +42,33 @@ async def send_telegram(message: str) -> None:
             resp.raise_for_status()
     except Exception as e:
         log.error(f"Telegram send failed: {e}")
+
+
+async def notify_service_error(context: str, exc: BaseException) -> None:
+    """Send a Telegram alert for monitor service errors."""
+    await send_telegram(format_service_error_alert(context, exc))
+
+
+def format_service_error_alert(context: str, exc: BaseException) -> str:
+    """Format a service error notification for Telegram."""
+    exc_name = type(exc).__name__
+    exc_msg = str(exc) or "(no message)"
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    if len(tb) > 1800:
+        tb = f"...\n{tb[-1800:]}"
+
+    return "\n".join(
+        [
+            "⚠️ <b>서비스 에러</b>",
+            "",
+            f"위치: {escape(context)}",
+            f"예외: <code>{escape(exc_name)}</code>",
+            f"메시지: <code>{escape(exc_msg)}</code>",
+            "",
+            "<b>Traceback</b>",
+            f"<pre>{escape(tb)}</pre>",
+        ]
+    )
 
 
 def format_sidecar_alert(market: str, event_type: str, index_info: dict) -> str:

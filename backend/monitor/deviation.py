@@ -149,6 +149,7 @@ async def monitor_deviation() -> None:
             await _run_eod_summary(client, label="서비스 시작")
         except Exception as e:
             log.error("Startup summary error: %s", e)
+            await notifier.notify_service_error("Deviation startup summary", e)
 
         session_active = is_market_hours()
         morning_summary_sent = session_active
@@ -161,6 +162,7 @@ async def monitor_deviation() -> None:
                         await _run_eod_summary(client)
                     except Exception as e:
                         log.error("EOD summary error: %s", e)
+                        await notifier.notify_service_error("Deviation EOD summary", e)
 
                 wait = seconds_until_market_open()
                 log.info("Market closed. Waiting %.0fs until next open.", wait)
@@ -174,11 +176,13 @@ async def monitor_deviation() -> None:
                     await _run_eod_summary(client, label="장 시작")
                 except Exception as e:
                     log.error("Morning summary error: %s", e)
+                    await notifier.notify_service_error("Deviation morning summary", e)
                 morning_summary_sent = True
 
             try:
                 await _run_poll(client)
             except Exception as e:
                 log.error("Deviation poll error: %s", e)
+                await notifier.notify_service_error("Deviation poll", e)
 
             await asyncio.sleep(cfg.deviation.poll_interval)

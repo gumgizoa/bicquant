@@ -106,6 +106,7 @@ async def _send_morning_summary(date_str: str) -> None:
         disclosures = await _fetch_disclosures(date_str, _MORNING_END_PAGE)
     except Exception as e:
         log.error("DART morning summary fetch error: %s", e)
+        await notifier.notify_service_error("DART morning summary fetch", e)
         return
 
     for d in disclosures:
@@ -126,6 +127,7 @@ async def _check_new_disclosures(date_str: str) -> None:
         disclosures = await _fetch_disclosures(date_str, _POLL_END_PAGE)
     except Exception as e:
         log.error("DART poll fetch error: %s", e)
+        await notifier.notify_service_error("DART poll fetch", e)
         return
 
     for d in disclosures:
@@ -158,6 +160,7 @@ async def monitor_dart_disclosures() -> None:
                 await _send_morning_summary(today)
             except Exception as e:
                 log.error("DART morning summary error: %s", e)
+                await notifier.notify_service_error("DART morning summary", e)
             morning_sent = True
         else:
             await _check_new_disclosures(today)
