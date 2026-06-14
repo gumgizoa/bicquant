@@ -48,7 +48,10 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: uv run pytest
+        # Deterministic, offline suite only. Live API tests (marker: slow) hit the
+        # real LS gateway and need credentials — run them on demand with
+        #   uv run pytest -m slow
+        entry: uv run pytest -m "not slow"
         language: system
         pass_filenames: false
         stages: [pre-push]
