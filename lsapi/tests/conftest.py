@@ -11,11 +11,19 @@ gateway's per-second quota is never exceeded.
 """
 
 import os
+import sys
+from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
 
-from lsapi import LSClient
+# Pytest can place the project directory before src/, resolving ``lsapi`` as a
+# namespace package. Force the real src package before importing test fixtures.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if "lsapi" in sys.modules and getattr(sys.modules["lsapi"], "__file__", None) is None:
+    del sys.modules["lsapi"]
+
+from lsapi import LSClient  # noqa: E402
 
 load_dotenv()  # repo .env when pytest is run from the project root
 
