@@ -28,6 +28,9 @@ _JSTATUS = {
 _MARKET = {"1": "kospi", "2": "kosdaq"}
 _UPCODE = {"kospi": "001", "kosdaq": "301"}
 
+# Delay before reconnecting after a WebSocket/session error.
+_RECONNECT_DELAY = 5.0
+
 # jstatus → event_type for KOSPI/KOSDAQ circuit breaker events
 _CB_STATUS = {
     "61": "cb_l1_triggered",
@@ -99,14 +102,23 @@ async def monitor_sidecar() -> None:
             await asyncio.sleep(wait)
             continue
 
-        async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as rest:
-            async with LSWebSocketClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as ws:
-                log.info("JIF WebSocket connected, watching for sidecar/CB events")
+        try:
+            async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as rest:
+                async with LSWebSocketClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as ws:
+                    log.info("JIF WebSocket connected, watching for sidecar/CB events")
 
-                await ws.subscribe("JIF", "", callback=partial(handle_jif, rest))
+                    await ws.subscribe("JIF", "", callback=partial(handle_jif, rest))
 
-                secs = seconds_until_market_close()
-                log.info("Monitoring until market close in %.0fs.", secs)
-                await asyncio.sleep(secs)
+                    secs = seconds_until_market_close()
+                    log.info("Monitoring until market close in %.0fs.", secs)
+                    await asyncio.sleep(secs)
 
-        log.info("Market session ended. Disconnecting.")
+            log.info("Market session ended. Disconnecting.")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # WebSocket drops, token refresh failures, and transient network
+            # errors are expected over a long session — reconnect rather than
+            # letting the exception bubble up and crash the monitor process.
+            log.exception("Sidecar WebSocket error; reconnecting in %.0fs", _RECONNECT_DELAY)
+            await asyncio.sleep(_RECONNECT_DELAY)

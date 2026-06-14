@@ -1,6 +1,7 @@
 import os
 
-from lsapi import LSClient, TRResponse
+from lsapi import AsyncLSClient as LSClient
+from lsapi import TRResponse
 from lsapi.exceptions import LSApiError
 
 __all__ = ["LSApiError", "TRResponse", "get_client", "get_bic_stocks"]

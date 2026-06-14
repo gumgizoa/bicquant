@@ -6,6 +6,8 @@ no external service) run offline.
 """
 
 import asyncio
+import datetime
+import zoneinfo
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
@@ -15,12 +17,20 @@ from monitor.dart_monitor import (
     _POLL_END_PAGE,
     _check_new_disclosures,
     _fetch_disclosures,
+    _is_dart_disclosure_hours,
     _matches_subject,
+    _seconds_until_dart_open,
     _seen_rcept_nos,
     _send_morning_summary,
     monitor_dart_disclosures,
 )
 from monitor.notifier import format_dart_daily_count, format_dart_new_disclosure
+
+_KST = zoneinfo.ZoneInfo("Asia/Seoul")
+
+
+def _kst(year: int, month: int, day: int, hour: int, minute: int, second: int = 0) -> datetime.datetime:
+    return datetime.datetime(year, month, day, hour, minute, second, tzinfo=_KST)
 
 
 def _disc(
@@ -46,6 +56,42 @@ def _reset_seen():
     _seen_rcept_nos.clear()
     yield
     _seen_rcept_nos.clear()
+
+
+# ---------------------------------------------------------------------------
+# DART disclosure hours
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dt,expected",
+    [
+        (_kst(2024, 1, 1, 7, 29, 59), False),
+        (_kst(2024, 1, 1, 7, 30), True),
+        (_kst(2024, 1, 1, 12, 0), True),
+        (_kst(2024, 1, 1, 17, 59, 59), True),
+        (_kst(2024, 1, 1, 18, 0), False),
+        (_kst(2024, 1, 6, 12, 0), False),
+    ],
+)
+def test_is_dart_disclosure_hours(dt: datetime.datetime, expected: bool) -> None:
+    with patch("monitor.dart_monitor._now_kst", return_value=dt):
+        assert _is_dart_disclosure_hours() is expected
+
+
+def test_seconds_until_dart_open_before_open_same_day() -> None:
+    now = _kst(2024, 1, 1, 7, 0)
+    with patch("monitor.dart_monitor._now_kst", return_value=now):
+        secs = _seconds_until_dart_open()
+    assert abs(secs - 1800) < 1
+
+
+def test_seconds_until_dart_open_after_close_skips_weekend() -> None:
+    now = _kst(2024, 1, 5, 18, 1)
+    expected = (_kst(2024, 1, 8, 7, 30) - now).total_seconds()
+    with patch("monitor.dart_monitor._now_kst", return_value=now):
+        secs = _seconds_until_dart_open()
+    assert abs(secs - expected) < 1
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +224,7 @@ async def test_monitor_dart_disclosures_morning_fires_once_then_polls() -> None:
         raise asyncio.CancelledError()
 
     with (
-        patch("monitor.dart_monitor.is_market_hours", side_effect=fake_market_hours),
+        patch("monitor.dart_monitor._is_dart_disclosure_hours", side_effect=fake_market_hours),
         patch("monitor.dart_monitor._send_morning_summary", new_callable=AsyncMock) as mock_morning,
         patch("monitor.dart_monitor._check_new_disclosures", new_callable=AsyncMock) as mock_poll,
         patch("monitor.dart_monitor.asyncio.sleep", new_callable=AsyncMock),
@@ -205,10 +251,10 @@ async def test_monitor_dart_disclosures_resets_state_after_market_close() -> Non
         return val
 
     with (
-        patch("monitor.dart_monitor.is_market_hours", side_effect=fake_market_hours),
+        patch("monitor.dart_monitor._is_dart_disclosure_hours", side_effect=fake_market_hours),
         patch("monitor.dart_monitor._send_morning_summary", new_callable=AsyncMock) as mock_morning,
         patch("monitor.dart_monitor._check_new_disclosures", new_callable=AsyncMock),
-        patch("monitor.dart_monitor.seconds_until_market_open", return_value=0.0),
+        patch("monitor.dart_monitor._seconds_until_dart_open", return_value=0.0),
         patch("monitor.dart_monitor.asyncio.sleep", new_callable=AsyncMock),
     ):
         try:
