@@ -10,7 +10,7 @@ from shared.queries import watchlist as watchlist_q
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
-from lsapi import LSClient
+from lsapi import AsyncLSClient as LSClient
 
 load_dotenv()
 

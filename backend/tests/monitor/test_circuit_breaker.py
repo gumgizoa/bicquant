@@ -1,10 +1,13 @@
-"""Unit tests for circuit breaker handling in monitor.sidecar and monitor.notifier."""
+"""Tests for circuit-breaker handling in monitor.sidecar / monitor.notifier.
 
-from unittest.mock import AsyncMock, MagicMock, patch
+Live (``slow``) tests hit the real LS API, dev Postgres, and dev Telegram chat.
+Pure-function tests (status map, alert formatting) run offline.
+"""
 
 import pytest
 from monitor.notifier import CB_EVENT_NAME, format_circuit_breaker_alert
 from monitor.sidecar import _CB_STATUS
+from shared.models import CircuitBreakerEvent
 
 # ---------------------------------------------------------------------------
 # _CB_STATUS mapping
@@ -84,102 +87,83 @@ def test_format_all_cb_event_types_produce_output(event_type: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# on_jif dispatch — circuit breaker path
+# Live: circuit-breaker event persistence — real dev DB round-trip
 # ---------------------------------------------------------------------------
 
 
-async def _invoke_on_jif(jstatus: str, jangubun: str = "1") -> tuple:
-    """Helper: builds mock clients, calls monitor_sidecar's on_jif, returns mocks."""
-    mock_index_resp = MagicMock()
-    mock_index_resp.block.return_value = {"pricejisu": 2500.0, "diffjisu": -8.1}
+@pytest.mark.slow
+async def test_cb_save_event_roundtrip(live_db) -> None:
+    from shared.queries import circuit_breaker as cb_q
 
-    mock_rest = AsyncMock()
-    mock_rest.call.return_value = mock_index_resp
+    before = await live_db.max_id(CircuitBreakerEvent)
+    try:
+        raw = {"jangubun": "1", "jstatus": "61", "current": "2,500.00", "change_pct": "-8.10"}
+        await cb_q.save_event("kospi", "cb_l1_triggered", "", raw)
 
-    msg = {"body": {"jangubun": jangubun, "jstatus": jstatus}}
-
-    with (
-        patch("monitor.sidecar.cb_q.save_event", new_callable=AsyncMock) as mock_cb_save,
-        patch("monitor.sidecar.sidecar_q.save_event", new_callable=AsyncMock) as mock_sc_save,
-        patch("monitor.sidecar.notifier.format_circuit_breaker_alert", return_value="cb_alert") as mock_fmt,
-        patch("monitor.sidecar.notifier.send_telegram", new_callable=AsyncMock) as mock_send,
-        patch("monitor.sidecar.notifier.format_sidecar_alert", return_value="sc_alert") as _,
-    ):
-        from monitor import notifier
-        from monitor.sidecar import _CB_STATUS, _JSTATUS, _MARKET, _UPCODE, _fetch_index_snapshot
-        from shared.queries import circuit_breaker as cb_q_mod
-        from shared.queries import sidecar as sidecar_q_mod
-
-        async def on_jif(msg: dict) -> None:
-            body = msg.get("body", {})
-            _jangubun = body.get("jangubun", "")
-            _jstatus = body.get("jstatus", "")
-
-            if _jangubun not in _MARKET:
-                return
-
-            market = _MARKET[_jangubun]
-
-            if _jstatus in _JSTATUS:
-                _event_type = _JSTATUS[_jstatus]
-                index_info = await _fetch_index_snapshot(mock_rest, _UPCODE[market])
-                await sidecar_q_mod.save_event(market, _event_type, "", {**body, **index_info})
-                alert = notifier.format_sidecar_alert(market, _event_type, index_info)
-                await notifier.send_telegram(alert)
-
-            elif _jstatus in _CB_STATUS:
-                _event_type = _CB_STATUS[_jstatus]
-                index_info = await _fetch_index_snapshot(mock_rest, _UPCODE[market])
-                await cb_q_mod.save_event(market, _event_type, "", {**body, **index_info})
-                alert = notifier.format_circuit_breaker_alert(market, _event_type, index_info)
-                await notifier.send_telegram(alert)
-
-        await on_jif(msg)
-        return mock_cb_save, mock_sc_save, mock_fmt, mock_send
+        rows = await live_db.rows_after(CircuitBreakerEvent, before)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.market == "kospi"
+        assert row.event_type == "cb_l1_triggered"
+        assert row.raw_data["jstatus"] == "61"
+    finally:
+        await live_db.delete_after(CircuitBreakerEvent, before)
 
 
-async def test_cb_l1_triggered_saves_event() -> None:
-    mock_cb_save, mock_sc_save, mock_fmt, mock_send = await _invoke_on_jif("61")
-
-    mock_cb_save.assert_awaited_once()
-    mock_sc_save.assert_not_called()
-    args = mock_cb_save.call_args.args
-    assert args[0] == "kospi"
-    assert args[1] == "cb_l1_triggered"
-    assert args[2] == ""  # no analysis
-
-
-async def test_cb_l2_triggered_kosdaq() -> None:
-    mock_cb_save, mock_sc_save, mock_fmt, mock_send = await _invoke_on_jif("68", jangubun="2")
-
-    mock_cb_save.assert_awaited_once()
-    args = mock_cb_save.call_args.args
-    assert args[0] == "kosdaq"
-    assert args[1] == "cb_l2_triggered"
+# ---------------------------------------------------------------------------
+# handle_jif — circuit-breaker dispatch (real module-level function).
+#
+# handle_jif() is now a module-level function taking the LS client explicitly,
+# so the live tests drive the *real* routing/dispatch logic end-to-end (real LS
+# snapshot, real DB persistence, real Telegram) instead of re-implementing it.
+# The no-op routing guards return before any external call, so they run offline.
+# ---------------------------------------------------------------------------
 
 
-async def test_cb_l3_triggered_calls_send_telegram() -> None:
-    _, _, mock_fmt, mock_send = await _invoke_on_jif("69")
-    mock_fmt.assert_called_once()
-    mock_send.assert_awaited_once_with("cb_alert")
+@pytest.mark.slow
+async def test_handle_jif_cb_event_writes_cb_row(ls_client, live_db, telegram) -> None:
+    from monitor.sidecar import handle_jif
+
+    msg = {"body": {"jangubun": "1", "jstatus": "61"}}  # KOSPI, cb_l1_triggered
+    before = await live_db.max_id(CircuitBreakerEvent)
+    try:
+        await handle_jif(ls_client, msg)
+
+        rows = await live_db.rows_after(CircuitBreakerEvent, before)
+        assert len(rows) == 1
+        assert rows[0].market == "kospi"
+        assert rows[0].event_type == "cb_l1_triggered"
+        assert rows[0].raw_data["jstatus"] == "61"
+    finally:
+        await live_db.delete_after(CircuitBreakerEvent, before)
 
 
-async def test_sidecar_event_does_not_route_to_cb() -> None:
-    mock_cb_save, mock_sc_save, _, _ = await _invoke_on_jif("64")
-    mock_cb_save.assert_not_called()
-    mock_sc_save.assert_awaited_once()
+@pytest.mark.slow
+async def test_handle_jif_cb_event_does_not_write_sidecar(ls_client, live_db, telegram) -> None:
+    from monitor.sidecar import handle_jif
+    from shared.models import SidecarEvent
+
+    msg = {"body": {"jangubun": "2", "jstatus": "68"}}  # KOSDAQ, cb_l2_triggered
+    cb_before = await live_db.max_id(CircuitBreakerEvent)
+    sc_before = await live_db.max_id(SidecarEvent)
+    try:
+        await handle_jif(ls_client, msg)
+
+        assert len(await live_db.rows_after(CircuitBreakerEvent, cb_before)) == 1
+        assert await live_db.rows_after(SidecarEvent, sc_before) == []
+    finally:
+        await live_db.delete_after(CircuitBreakerEvent, cb_before)
 
 
-async def test_unknown_jstatus_ignored() -> None:
-    mock_cb_save, mock_sc_save, _, mock_send = await _invoke_on_jif("99")
-    mock_cb_save.assert_not_called()
-    mock_sc_save.assert_not_called()
-    mock_send.assert_not_called()
+async def test_handle_jif_unknown_jstatus_is_noop() -> None:
+    # jstatus 99 matches neither map → returns before any external call.
+    from monitor.sidecar import handle_jif
+
+    await handle_jif(None, {"body": {"jangubun": "1", "jstatus": "99"}})
 
 
-async def test_non_equity_market_ignored() -> None:
-    """jangubun=5 (futures) is not in _MARKET so on_jif returns early."""
-    mock_cb_save, mock_sc_save, _, mock_send = await _invoke_on_jif("61", jangubun="5")
-    mock_cb_save.assert_not_called()
-    mock_sc_save.assert_not_called()
-    mock_send.assert_not_called()
+async def test_handle_jif_non_equity_market_is_noop() -> None:
+    # jangubun 5 (futures) is not in _MARKET → returns immediately.
+    from monitor.sidecar import handle_jif
+
+    await handle_jif(None, {"body": {"jangubun": "5", "jstatus": "61"}})

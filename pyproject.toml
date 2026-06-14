@@ -11,12 +11,13 @@ select = ["E", "W", "F", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 "dartapi/src/dartapi/dart_*.py" = ["E501"]
+"lsapi/src/lsapi/generated/*.py" = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests", "lsapi/tests", "backend/tests", "dartapi/tests"]
-pythonpath = ["backend"]
+pythonpath = ["backend", "lsapi/src", "dartapi/src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

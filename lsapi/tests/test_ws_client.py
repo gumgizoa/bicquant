@@ -1,140 +1,47 @@
-"""Unit tests for LSWebSocketClient.connect() retry behavior."""
+"""Live tests for the async LSWebSocketClient against the real LS endpoint.
 
-from unittest.mock import AsyncMock, MagicMock, patch
+These verify the full path: connect → subscribe (token in register frame) →
+frame delivered from the sync engine thread, bridged onto the asyncio loop.
+Read-only subscriptions only. The market may be closed, in which case only the
+registration ack frame is received — which is enough to prove the bridge works.
+"""
 
-import websockets.exceptions
+import asyncio
+import os
 
-from lsapi.ws_client import LSWebSocketClient
+import pytest
+from dotenv import load_dotenv
 
+from lsapi import LSWebSocketClient
 
-def _conn_closed_ok() -> websockets.exceptions.ConnectionClosedOK:
-    """Create a ConnectionClosedOK without requiring valid Close frame objects."""
-    return websockets.exceptions.ConnectionClosedOK.__new__(websockets.exceptions.ConnectionClosedOK)
+load_dotenv()
+APP_KEY = os.environ.get("LS_OPENAPI_APP_KEY", "")
+APP_SECRET = os.environ.get("LS_OPENAPI_APP_SECRET", "")
+HAVE_CREDS = bool(APP_KEY and APP_SECRET)
+SHCODE = "005930"
 
-
-# ---------------------------------------------------------------------------
-# connect() retry on ConnectionClosedOK
-# ---------------------------------------------------------------------------
-
-
-async def test_connect_retries_once_on_connection_closed_ok() -> None:
-    """connect() must retry when the server closes the connection during login."""
-    client = LSWebSocketClient("key", "secret", reconnect_delay=0)
-    login_calls = 0
-
-    async def fake_login(token: str) -> None:
-        nonlocal login_calls
-        login_calls += 1
-        if login_calls == 1:
-            raise _conn_closed_ok()
-
-    mock_conn = AsyncMock()
-
-    with (
-        patch.object(client._tokens, "get", new_callable=AsyncMock, return_value="tok"),
-        patch("lsapi.ws_client.websockets.connect", new_callable=AsyncMock, return_value=mock_conn),
-        patch.object(client, "_login", side_effect=fake_login),
-        patch("lsapi.ws_client.asyncio.create_task"),
-    ):
-        await client.connect()
-
-    assert login_calls == 2
+pytestmark = [pytest.mark.slow, pytest.mark.skipif(not HAVE_CREDS, reason="LS creds not set")]
 
 
-async def test_connect_retries_multiple_times_before_succeeding() -> None:
-    client = LSWebSocketClient("key", "secret", reconnect_delay=0)
-    login_calls = 0
+async def test_subscribe_receives_frame_bridged_to_loop() -> None:
+    frames: list[dict] = []
 
-    async def fake_login(token: str) -> None:
-        nonlocal login_calls
-        login_calls += 1
-        if login_calls < 3:
-            raise _conn_closed_ok()
+    async with LSWebSocketClient(app_key=APP_KEY, app_secret=APP_SECRET) as ws:
+        await ws.subscribe("JIF", "", callback=frames.append)  # 장운영정보
+        await ws.subscribe("S3_", SHCODE, callback=frames.append)  # KOSPI 체결
+        for _ in range(20):  # wait up to ~10s for any frame (ack or tick)
+            if frames:
+                break
+            await asyncio.sleep(0.5)
+        await ws.unsubscribe("S3_", SHCODE)
 
-    mock_conn = AsyncMock()
-
-    with (
-        patch.object(client._tokens, "get", new_callable=AsyncMock, return_value="tok"),
-        patch("lsapi.ws_client.websockets.connect", new_callable=AsyncMock, return_value=mock_conn),
-        patch.object(client, "_login", side_effect=fake_login),
-        patch("lsapi.ws_client.asyncio.create_task"),
-    ):
-        await client.connect()
-
-    assert login_calls == 3
+    assert frames, "expected at least the registration ack frame"
+    assert "header" in frames[0]
 
 
-async def test_connect_does_not_retry_when_stopping() -> None:
-    """connect() exits without creating a task when _stopping is True during retry."""
-    client = LSWebSocketClient("key", "secret", reconnect_delay=0)
-    client._stopping = True
-
-    async def fake_login(token: str) -> None:
-        raise _conn_closed_ok()
-
-    mock_conn = AsyncMock()
-    mock_create_task = MagicMock()
-
-    with (
-        patch.object(client._tokens, "get", new_callable=AsyncMock, return_value="tok"),
-        patch("lsapi.ws_client.websockets.connect", new_callable=AsyncMock, return_value=mock_conn),
-        patch.object(client, "_login", side_effect=fake_login),
-        patch("lsapi.ws_client.asyncio.create_task", mock_create_task),
-    ):
-        await client.connect()
-
-    mock_create_task.assert_not_called()
-
-
-async def test_connect_succeeds_on_first_try_without_retry() -> None:
-    client = LSWebSocketClient("key", "secret", reconnect_delay=0)
-    login_calls = 0
-
-    async def fake_login(token: str) -> None:
-        nonlocal login_calls
-        login_calls += 1
-
-    mock_conn = AsyncMock()
-
-    with (
-        patch.object(client._tokens, "get", new_callable=AsyncMock, return_value="tok"),
-        patch("lsapi.ws_client.websockets.connect", new_callable=AsyncMock, return_value=mock_conn),
-        patch.object(client, "_login", side_effect=fake_login),
-        patch("lsapi.ws_client.asyncio.create_task"),
-    ):
-        await client.connect()
-
-    assert login_calls == 1
-
-
-async def test_connect_creates_recv_task_after_successful_login() -> None:
-    client = LSWebSocketClient("key", "secret", reconnect_delay=0)
-    mock_conn = AsyncMock()
-    mock_create_task = MagicMock()
-
-    with (
-        patch.object(client._tokens, "get", new_callable=AsyncMock, return_value="tok"),
-        patch("lsapi.ws_client.websockets.connect", new_callable=AsyncMock, return_value=mock_conn),
-        patch.object(client, "_login", new_callable=AsyncMock),
-        patch("lsapi.ws_client.asyncio.create_task", mock_create_task),
-    ):
-        await client.connect()
-
-    mock_create_task.assert_called_once()
-
-
-async def test_connect_propagates_non_closed_ok_exceptions() -> None:
-    """connect() should not swallow unexpected exceptions from login."""
-    client = LSWebSocketClient("key", "secret", reconnect_delay=0)
-    mock_conn = AsyncMock()
-
-    with (
-        patch.object(client._tokens, "get", new_callable=AsyncMock, return_value="tok"),
-        patch("lsapi.ws_client.websockets.connect", new_callable=AsyncMock, return_value=mock_conn),
-        patch.object(client, "_login", side_effect=RuntimeError("unexpected")),
-        patch("lsapi.ws_client.asyncio.create_task"),
-    ):
-        import pytest
-
-        with pytest.raises(RuntimeError, match="unexpected"):
-            await client.connect()
+async def test_connect_and_close_clean() -> None:
+    ws = LSWebSocketClient(app_key=APP_KEY, app_secret=APP_SECRET)
+    await ws.connect()
+    assert ws._rt is not None
+    await ws.close()
+    assert ws._rt is None

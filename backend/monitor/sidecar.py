@@ -2,12 +2,14 @@
 
 import asyncio
 import logging
+from functools import partial
 
 from shared.config import get_config
 from shared.queries import circuit_breaker as cb_q
 from shared.queries import sidecar as sidecar_q
 
-from lsapi import LSClient, LSWebSocketClient
+from lsapi import AsyncLSClient as LSClient
+from lsapi import LSWebSocketClient
 from monitor import notifier
 from monitor.market_hours import is_market_hours, seconds_until_market_close, seconds_until_market_open
 
@@ -25,6 +27,9 @@ _JSTATUS = {
 
 _MARKET = {"1": "kospi", "2": "kosdaq"}
 _UPCODE = {"kospi": "001", "kosdaq": "301"}
+
+# Delay before reconnecting after a WebSocket/session error.
+_RECONNECT_DELAY = 5.0
 
 # jstatus → event_type for KOSPI/KOSDAQ circuit breaker events
 _CB_STATUS = {
@@ -51,6 +56,44 @@ async def _fetch_index_snapshot(client: LSClient, upcode: str) -> dict:
         return {}
 
 
+async def handle_jif(rest: LSClient, msg: dict) -> None:
+    """Dispatch a single JIF realtime frame to sidecar / circuit-breaker handling.
+
+    Routing:
+        jangubun → market (1=kospi, 2=kosdaq); other values are ignored.
+        jstatus  → sidecar event (_JSTATUS) or circuit-breaker event (_CB_STATUS);
+                   unknown values are ignored.
+
+    For a recognised event it fetches an index snapshot, persists the event, and
+    sends a Telegram alert. ``rest`` is the active LS API client used for the
+    snapshot.
+    """
+    body = msg.get("body", {})
+    jangubun = body.get("jangubun", "")
+    jstatus = body.get("jstatus", "")
+
+    if jangubun not in _MARKET:
+        return
+
+    market = _MARKET[jangubun]
+
+    if jstatus in _JSTATUS:
+        event_type = _JSTATUS[jstatus]
+        log.info("Sidecar event: %s %s", market, event_type)
+        index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
+        await sidecar_q.save_event(market, event_type, "", {**body, **index_info})
+        alert = notifier.format_sidecar_alert(market, event_type, index_info)
+        await notifier.send_telegram(alert)
+
+    elif jstatus in _CB_STATUS:
+        event_type = _CB_STATUS[jstatus]
+        log.info("Circuit breaker event: %s %s", market, event_type)
+        index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
+        await cb_q.save_event(market, event_type, "", {**body, **index_info})
+        alert = notifier.format_circuit_breaker_alert(market, event_type, index_info)
+        await notifier.send_telegram(alert)
+
+
 async def monitor_sidecar() -> None:
     while True:
         if not is_market_hours():
@@ -59,40 +102,24 @@ async def monitor_sidecar() -> None:
             await asyncio.sleep(wait)
             continue
 
-        async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as rest:
-            async with LSWebSocketClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as ws:
-                log.info("JIF WebSocket connected, watching for sidecar/CB events")
+        try:
+            async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as rest:
+                async with LSWebSocketClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as ws:
+                    log.info("JIF WebSocket connected, watching for sidecar/CB events")
 
-                async def on_jif(msg: dict) -> None:
-                    body = msg.get("body", {})
-                    jangubun = body.get("jangubun", "")
-                    jstatus = body.get("jstatus", "")
+                    await ws.subscribe("JIF", "", callback=partial(handle_jif, rest))
 
-                    if jangubun not in _MARKET:
-                        return
+                    secs = seconds_until_market_close()
+                    log.info("Monitoring until market close in %.0fs.", secs)
+                    await asyncio.sleep(secs)
 
-                    market = _MARKET[jangubun]
-
-                    if jstatus in _JSTATUS:
-                        event_type = _JSTATUS[jstatus]
-                        log.info("Sidecar event: %s %s", market, event_type)
-                        index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
-                        await sidecar_q.save_event(market, event_type, "", {**body, **index_info})
-                        alert = notifier.format_sidecar_alert(market, event_type, index_info)
-                        await notifier.send_telegram(alert)
-
-                    elif jstatus in _CB_STATUS:
-                        event_type = _CB_STATUS[jstatus]
-                        log.info("Circuit breaker event: %s %s", market, event_type)
-                        index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
-                        await cb_q.save_event(market, event_type, "", {**body, **index_info})
-                        alert = notifier.format_circuit_breaker_alert(market, event_type, index_info)
-                        await notifier.send_telegram(alert)
-
-                await ws.subscribe("JIF", "", callback=on_jif)
-
-                secs = seconds_until_market_close()
-                log.info("Monitoring until market close in %.0fs.", secs)
-                await asyncio.sleep(secs)
-
-        log.info("Market session ended. Disconnecting.")
+            log.info("Market session ended. Disconnecting.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # WebSocket drops, token refresh failures, and transient network
+            # errors are expected over a long session — reconnect rather than
+            # letting the exception bubble up and crash the monitor process.
+            log.exception("Sidecar WebSocket error; reconnecting in %.0fs", _RECONNECT_DELAY)
+            await notifier.notify_service_error(f"Sidecar WebSocket; reconnecting in {_RECONNECT_DELAY:.0f}s", e)
+            await asyncio.sleep(_RECONNECT_DELAY)

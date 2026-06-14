@@ -59,6 +59,39 @@ class TRSpec:
                 return b
         return self.in_blocks[0] if self.in_blocks else None
 
+    @property
+    def primary_in_block(self) -> str | None:
+        """Name of the input block that kwargs are folded into.
+
+        Prefers a block whose name starts with the TR code (e.g. ``t1101InBlock``),
+        else the first Object-type block, else the first block.
+        """
+        for b in self.in_blocks:
+            if b.name.lower().startswith(self.code.lower()):
+                return b.name
+        first = self.first_in_block()
+        return first.name if first else None
+
+    def build_body(self, params: dict | None = None, /, **kwargs: object) -> dict:
+        """Build a request body by folding params/kwargs into the primary in-block.
+
+        Example::
+
+            spec.build_body(shcode="005930")
+                -> {"t1101InBlock": {"shcode": "005930"}}
+        """
+        merged: dict[str, object] = {}
+        if params:
+            merged.update(params)
+        merged.update(kwargs)
+
+        block = self.primary_in_block
+        if block is None:
+            if merged:
+                raise LSSpecError(f"TR {self.code} has no known input block but params were provided")
+            return {}
+        return {block: merged}
+
 
 # ---------------------------------------------------------------------------
 # Catalog
@@ -123,9 +156,20 @@ class Catalog:
         return [self.tr(code) for code, meta in self._index.items() if kw in meta.get("group", "").lower() or kw in meta.get("category", "").lower()]
 
 
+def _clean_block_name(name: str) -> str:
+    """Strip the crawled ``(Occurs)`` array annotation from a block name.
+
+    The catalog stores the documentation block names verbatim (e.g.
+    ``"o3107InBlock\\n(Occurs)"``); the gateway expects the bare name. The
+    repeating nature is already captured by ``BlockSpec.type == "Array"``.
+    """
+    return name.replace("(Occurs)", "").strip()
+
+
 def _parse_blocks(raw: dict) -> tuple[BlockSpec, ...]:
     result = []
     for block_name, block_data in raw.items():
+        block_name = _clean_block_name(block_name)
         fields = tuple(
             FieldSpec(
                 name=f["name"],
@@ -144,66 +188,3 @@ def _parse_blocks(raw: dict) -> tuple[BlockSpec, ...]:
 @lru_cache(maxsize=1)
 def default_catalog() -> Catalog:
     return Catalog.load()
-
-
-# ---------------------------------------------------------------------------
-# Real-time topic helpers
-# ---------------------------------------------------------------------------
-
-
-class _LazyTopicsDict:
-    """Real-time TR codes grouped by category. Loads the catalog on first access."""
-
-    def __init__(self) -> None:
-        self._data: dict[str, list[str]] | None = None
-
-    def _load(self) -> dict[str, list[str]]:
-        if self._data is None:
-            cat = default_catalog()
-            result: dict[str, list[str]] = {}
-            for code in cat.codes():
-                spec = cat.tr(code)
-                if spec.is_realtime:
-                    result.setdefault(spec.group, []).append(code)
-            self._data = result
-        return self._data
-
-    def __getitem__(self, key: str) -> list[str]:
-        return self._load()[key]
-
-    def __iter__(self):
-        return iter(self._load())
-
-    def __repr__(self) -> str:
-        return repr(self._load())
-
-    def keys(self):
-        return self._load().keys()
-
-    def values(self):
-        return self._load().values()
-
-    def items(self):
-        return self._load().items()
-
-
-REALTIME_TOPICS: dict[str, list[str]] = _LazyTopicsDict()  # type: ignore[assignment]
-
-
-def list_topics(category: str | None = None) -> list[TRSpec]:
-    """Return all real-time TRs, optionally filtered by group keyword.
-
-    Args:
-        category: Group name keyword to filter by (e.g. "주식", "선물").
-            Pass None to return all real-time TRs.
-
-    Example:
-        list_topics()             # all real-time TRs
-        list_topics("주식")       # stock-related real-time TRs only
-    """
-    cat = default_catalog()
-    topics = [cat.tr(code) for code in cat.codes() if cat.tr(code).is_realtime]
-    if category:
-        kw = category.lower()
-        topics = [t for t in topics if kw in t.group.lower() or kw in t.category.lower()]
-    return topics

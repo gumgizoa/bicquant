@@ -1,12 +1,11 @@
 [project]
 name = "lsapi"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.12"
-description = "LS Securities OpenAPI Python client"
+description = "LS Securities OpenAPI Python client (sync engine + async facade)"
 dependencies = [
-    "httpx>=0.27",
-    "pydantic>=2",
-    "websockets>=12",
+    "requests>=2.31",
+    "websocket-client>=1.7",
     "python-dotenv",
 ]
 
@@ -14,7 +13,6 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
-    "respx",
 ]
 
 [build-system]

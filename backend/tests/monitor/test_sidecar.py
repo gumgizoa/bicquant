@@ -1,10 +1,13 @@
-"""Unit tests for monitor.sidecar and monitor.notifier sidecar formatting."""
+"""Tests for monitor.sidecar and sidecar alert formatting.
 
-from unittest.mock import AsyncMock, MagicMock
+Live (``slow``) tests hit the real LS API and dev Postgres. Pure-function tests
+(alert formatting, jstatus/market maps) run offline.
+"""
 
 import pytest
 from monitor.notifier import format_sidecar_alert
-from monitor.sidecar import _JSTATUS, _MARKET, _fetch_index_snapshot
+from monitor.sidecar import _JSTATUS, _MARKET, _UPCODE, _fetch_index_snapshot
+from shared.models import SidecarEvent
 
 # ---------------------------------------------------------------------------
 # format_sidecar_alert — pure function
@@ -62,41 +65,75 @@ def test_market_mapping() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _fetch_index_snapshot
+# Live: _fetch_index_snapshot — real LS API
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_index_snapshot_returns_formatted_values() -> None:
-    mock_resp = MagicMock()
-    mock_resp.block.return_value = {"pricejisu": 2700.50, "diffjisu": -3.55}
-
-    mock_client = AsyncMock()
-    mock_client.call.return_value = mock_resp
-
-    result = await _fetch_index_snapshot(mock_client, "001")
-
-    mock_client.call.assert_awaited_once_with("t1511", {"t1511InBlock": {"upcode": "001"}})
-    assert result["current"] == "2,700.50"
-    assert result["change_pct"] == "-3.55"
+@pytest.mark.slow
+@pytest.mark.parametrize("market", ["kospi", "kosdaq"])
+async def test_fetch_index_snapshot_live(ls_client, market: str) -> None:
+    info = await _fetch_index_snapshot(ls_client, _UPCODE[market])
+    assert set(info) == {"current", "change_pct"}
+    # current is a thousands-formatted positive number, e.g. "2,700.50"
+    current = float(info["current"].replace(",", ""))
+    assert current > 0
+    # change_pct carries an explicit sign, e.g. "+0.42" / "-3.55"
+    assert info["change_pct"][0] in "+-"
 
 
-async def test_fetch_index_snapshot_returns_empty_on_error() -> None:
-    mock_client = AsyncMock()
-    mock_client.call.side_effect = Exception("network error")
+@pytest.mark.slow
+async def test_fetch_index_snapshot_resilient_to_bad_upcode(ls_client) -> None:
+    # The real gateway answers an unknown upcode with a zero-valued block rather
+    # than an error, so the function returns a (zeroed) snapshot and never
+    # raises. Either outcome — zeroed dict or empty dict — is acceptable; what
+    # matters is that it does not propagate an exception to the caller.
+    info = await _fetch_index_snapshot(ls_client, "ZZZ")
+    assert isinstance(info, dict)
+    assert set(info) in ({"current", "change_pct"}, set())
 
-    result = await _fetch_index_snapshot(mock_client, "001")
 
-    assert result == {}
+# ---------------------------------------------------------------------------
+# Live: sidecar event persistence — real dev DB round-trip
+# ---------------------------------------------------------------------------
 
 
-async def test_fetch_index_snapshot_handles_missing_block() -> None:
-    mock_resp = MagicMock()
-    mock_resp.block.return_value = None
+@pytest.mark.slow
+async def test_sidecar_save_event_roundtrip(live_db) -> None:
+    from shared.queries import sidecar as sidecar_q
 
-    mock_client = AsyncMock()
-    mock_client.call.return_value = mock_resp
+    before = await live_db.max_id(SidecarEvent)
+    try:
+        raw = {"jangubun": "1", "jstatus": "64", "current": "2,700.00", "change_pct": "-3.50"}
+        await sidecar_q.save_event("kospi", "sell_triggered", "", raw)
 
-    result = await _fetch_index_snapshot(mock_client, "001")
+        rows = await live_db.rows_after(SidecarEvent, before)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.market == "kospi"
+        assert row.event_type == "sell_triggered"
+        assert row.raw_data["jstatus"] == "64"
+    finally:
+        await live_db.delete_after(SidecarEvent, before)
 
-    assert result["current"] == "0.00"
-    assert result["change_pct"] == "+0.00"
+
+# ---------------------------------------------------------------------------
+# Live: handle_jif — sidecar dispatch (real module-level function)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+async def test_handle_jif_sidecar_event_writes_sidecar_row(ls_client, live_db, telegram) -> None:
+    from monitor.sidecar import handle_jif
+
+    msg = {"body": {"jangubun": "1", "jstatus": "64"}}  # KOSPI, sell_triggered
+    before = await live_db.max_id(SidecarEvent)
+    try:
+        await handle_jif(ls_client, msg)  # real LS snapshot + DB write + Telegram
+
+        rows = await live_db.rows_after(SidecarEvent, before)
+        assert len(rows) == 1
+        assert rows[0].market == "kospi"
+        assert rows[0].event_type == "sell_triggered"
+        assert rows[0].raw_data["jstatus"] == "64"
+    finally:
+        await live_db.delete_after(SidecarEvent, before)
