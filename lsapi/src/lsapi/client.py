@@ -199,70 +199,81 @@ class LSClient:
         self._last_call[spec.code] = time.monotonic()
 
         url = self.config.rest_base + spec.url
-        headers = {
-            "Content-Type": spec.content_type or "application/json; charset=UTF-8",
-            "authorization": f"Bearer {self._auth.token}",
-            "tr_cd": spec.code,
-            "tr_cont": tr_cont or "N",
-            "tr_cont_key": tr_cont_key or "",
-        }
-        if self.config.mac_address:
-            headers["mac_address"] = self.config.mac_address
-        if extra_headers:
-            headers.update(extra_headers)
-
-        log.debug("POST %s tr_cd=%s body=%s", url, spec.code, body)
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
-        attempt = 0
+
+        token_refreshed = False
         while True:
+            headers = {
+                "Content-Type": spec.content_type or "application/json; charset=UTF-8",
+                "authorization": f"Bearer {self._auth.token}",
+                "tr_cd": spec.code,
+                "tr_cont": tr_cont or "N",
+                "tr_cont_key": tr_cont_key or "",
+            }
+            if self.config.mac_address:
+                headers["mac_address"] = self.config.mac_address
+            if extra_headers:
+                headers.update(extra_headers)
+
+            log.debug("POST %s tr_cd=%s body=%s", url, spec.code, body)
+            attempt = 0
+            while True:
+                try:
+                    resp = self._session.request(
+                        spec.method or "POST",
+                        url,
+                        headers=headers,
+                        data=payload,
+                        timeout=self.config.timeout,
+                    )
+                    break
+                except requests.RequestException as e:
+                    # Transient network errors (DNS failures, dropped connections,
+                    # timeouts) are retried with exponential backoff before giving up.
+                    attempt += 1
+                    if attempt > self.config.max_retries:
+                        raise LSApiError(f"[{spec.code}] network error after {attempt} attempts: {e}") from e
+                    wait = self.config.retry_backoff * (2 ** (attempt - 1))
+                    log.warning(
+                        "[%s] network error (attempt %d/%d): %s — retrying in %.1fs",
+                        spec.code,
+                        attempt,
+                        self.config.max_retries,
+                        e,
+                        wait,
+                    )
+                    time.sleep(wait)
+
+            if resp.status_code == 429:
+                raise LSRateLimitError(f"[{spec.code}] throughput quota exceeded", http_status=429)
             try:
-                resp = self._session.request(
-                    spec.method or "POST",
-                    url,
-                    headers=headers,
-                    data=payload,
-                    timeout=self.config.timeout,
-                )
-                break
-            except requests.RequestException as e:
-                # Transient network errors (DNS failures, dropped connections,
-                # timeouts) are retried with exponential backoff before giving up.
-                attempt += 1
-                if attempt > self.config.max_retries:
-                    raise LSApiError(f"[{spec.code}] network error after {attempt} attempts: {e}") from e
-                wait = self.config.retry_backoff * (2 ** (attempt - 1))
-                log.warning(
-                    "[%s] network error (attempt %d/%d): %s — retrying in %.1fs",
-                    spec.code,
-                    attempt,
-                    self.config.max_retries,
-                    e,
-                    wait,
-                )
-                time.sleep(wait)
+                data = resp.json() if resp.content else {}
+            except ValueError:
+                raise LSApiError(f"[{spec.code}] non-JSON response", http_status=resp.status_code, body=resp.text)
 
-        if resp.status_code == 429:
-            raise LSRateLimitError(f"[{spec.code}] throughput quota exceeded", http_status=429)
-        try:
-            data = resp.json() if resp.content else {}
-        except ValueError:
-            raise LSApiError(f"[{spec.code}] non-JSON response", http_status=resp.status_code, body=resp.text)
+            rsp_cd = str(data.get("rsp_cd") or "")
+            rsp_msg = str(data.get("rsp_msg") or "")
 
-        rsp_cd = str(data.get("rsp_cd") or "")
-        rsp_msg = str(data.get("rsp_msg") or "")
-        if resp.status_code >= 400 or (rsp_cd and rsp_cd not in ("00000", "0")):
-            raise LSApiError(
-                f"[{spec.code}] {rsp_cd}: {rsp_msg or 'error'}",
-                rsp_cd=rsp_cd or None,
-                rsp_msg=rsp_msg or None,
-                http_status=resp.status_code,
+            # LS gateway invalidates tokens on re-authentication: refresh once and retry.
+            if rsp_cd == "IGW00121" and not token_refreshed:
+                log.warning("[%s] token rejected by server (IGW00121); refreshing and retrying", spec.code)
+                self._auth.invalidate()
+                token_refreshed = True
+                continue
+
+            if resp.status_code >= 400 or (rsp_cd and rsp_cd not in ("00000", "0")):
+                raise LSApiError(
+                    f"[{spec.code}] {rsp_cd}: {rsp_msg or 'error'}",
+                    rsp_cd=rsp_cd or None,
+                    rsp_msg=rsp_msg or None,
+                    http_status=resp.status_code,
+                    body=data,
+                )
+            return TRResponse(
+                tr_cd=spec.code,
+                rsp_cd=rsp_cd,
+                rsp_msg=rsp_msg,
                 body=data,
+                tr_cont=resp.headers.get("tr_cont"),
+                tr_cont_key=resp.headers.get("tr_cont_key"),
             )
-        return TRResponse(
-            tr_cd=spec.code,
-            rsp_cd=rsp_cd,
-            rsp_msg=rsp_msg,
-            body=data,
-            tr_cont=resp.headers.get("tr_cont"),
-            tr_cont_key=resp.headers.get("tr_cont_key"),
-        )
