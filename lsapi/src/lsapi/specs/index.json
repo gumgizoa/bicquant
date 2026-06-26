@@ -1039,17 +1039,7 @@
     "content_type": "application/json; charset=UTF-8",
     "tps_limit": 1
   },
-  "t4203": {
-    "name": "업종차트(종합)",
-    "group": "[업종] 차트",
-    "category": "업종",
-    "method": "POST",
-    "url": "/indtp/chart",
-    "domain": "https://openapi.ls-sec.co.kr:8080",
-    "content_type": "application/json; charset=UTF-8",
-    "tps_limit": 2
-  },
-  "t8417": {
+  "t8408": {
     "name": "업종차트(틱/n틱)",
     "group": "[업종] 차트",
     "category": "업종",
@@ -1059,7 +1049,7 @@
     "content_type": "application/json; charset=UTF-8",
     "tps_limit": 1
   },
-  "t8418": {
+  "t8409": {
     "name": "업종차트(N분)",
     "group": "[업종] 차트",
     "category": "업종",
@@ -1069,7 +1059,7 @@
     "content_type": "application/json; charset=UTF-8",
     "tps_limit": 1
   },
-  "t8419": {
+  "t8429": {
     "name": "업종차트(일주월)",
     "group": "[업종] 차트",
     "category": "업종",

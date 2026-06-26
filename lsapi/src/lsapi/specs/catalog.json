@@ -227,10 +227,9 @@
     "url": "/indtp/chart",
     "domain": "https://openapi.ls-sec.co.kr:8080",
     "trs": [
-      "t4203",
-      "t8417",
-      "t8418",
-      "t8419"
+      "t8408",
+      "t8409",
+      "t8429"
     ]
   },
   {
