@@ -121,7 +121,12 @@ class LSWebSocketClient:
         """Wrap a user callback so it runs on the event loop from the ws thread."""
         loop = self._loop
 
+        def _on_done(fut: "asyncio.Future[None]") -> None:
+            if not fut.cancelled() and (exc := fut.exception()) is not None:
+                _log.error("async realtime handler raised: %r", exc, exc_info=exc)
+
         def shim(msg: dict) -> None:
+            _log.debug("shim: dispatching msg tr_cd=%r", (msg.get("header") or {}).get("tr_cd"))
             try:
                 result = callback(msg)
             except Exception:  # noqa: BLE001
@@ -131,6 +136,6 @@ class LSWebSocketClient:
                 if loop is None:  # pragma: no cover - connect() always sets it
                     _log.warning("async handler but no event loop captured; dropping")
                     return
-                asyncio.run_coroutine_threadsafe(result, loop)
+                asyncio.run_coroutine_threadsafe(result, loop).add_done_callback(_on_done)
 
         return shim

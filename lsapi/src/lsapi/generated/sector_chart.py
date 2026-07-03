@@ -14,49 +14,12 @@ if TYPE_CHECKING:
 
 
 class SectorChartAPI:
-    """[업종] 차트 — 4 TR(s)."""
+    """[업종] 차트 — 3 TR(s)."""
 
     def __init__(self, client: "LSClient") -> None:
         self._c = client
 
-    def t4203(
-        self,
-        *,
-        shcode: str | int = "",
-        gubun: str | int = "",
-        ncnt: str | int = "",
-        qrycnt: str | int = "",
-        tdgb: str | int = "",
-        sdate: str | int = "",
-        edate: str | int = "",
-        cts_date: str | int = "",
-        cts_time: str | int = "",
-        cts_daygb: str | int = "",
-    ) -> TRResponse:
-        """t4203 — 업종차트(종합).
-
-        Endpoint : POST https://openapi.ls-sec.co.kr:8080/indtp/chart
-        Rate/sec : 2
-        In  block: t4203InBlock
-        Out block(s): t4203OutBlock, t4203OutBlock1
-        """
-        body = {
-            "t4203InBlock": {
-                "shcode": shcode,
-                "gubun": gubun,
-                "ncnt": ncnt,
-                "qrycnt": qrycnt,
-                "tdgb": tdgb,
-                "sdate": sdate,
-                "edate": edate,
-                "cts_date": cts_date,
-                "cts_time": cts_time,
-                "cts_daygb": cts_daygb,
-            }
-        }
-        return self._c.call("t4203", body)
-
-    def t8417(
+    def t8408(
         self,
         *,
         shcode: str | int = "",
@@ -71,15 +34,15 @@ class SectorChartAPI:
         cts_time: str | int = "",
         comp_yn: str | int = "",
     ) -> TRResponse:
-        """t8417 — 업종차트(틱/n틱).
+        """t8408 — 업종차트(틱/n틱).
 
         Endpoint : POST https://openapi.ls-sec.co.kr:8080/indtp/chart
         Rate/sec : 1
-        In  block: t8417InBlock
-        Out block(s): t8417OutBlock, t8417OutBlock1
+        In  block: t8408InBlock
+        Out block(s): t8408OutBlock, t8408OutBlock1
         """
         body = {
-            "t8417InBlock": {
+            "t8408InBlock": {
                 "shcode": shcode,
                 "ncnt": ncnt,
                 "qrycnt": qrycnt,
@@ -93,9 +56,9 @@ class SectorChartAPI:
                 "comp_yn": comp_yn,
             }
         }
-        return self._c.call("t8417", body)
+        return self._c.call("t8408", body)
 
-    def t8418(
+    def t8409(
         self,
         *,
         shcode: str | int = "",
@@ -110,15 +73,15 @@ class SectorChartAPI:
         cts_time: str | int = "",
         comp_yn: str | int = "",
     ) -> TRResponse:
-        """t8418 — 업종차트(N분).
+        """t8409 — 업종차트(N분).
 
         Endpoint : POST https://openapi.ls-sec.co.kr:8080/indtp/chart
         Rate/sec : 1
-        In  block: t8418InBlock
-        Out block(s): t8418OutBlock, t8418OutBlock1
+        In  block: t8409InBlock
+        Out block(s): t8409OutBlock, t8409OutBlock1
         """
         body = {
-            "t8418InBlock": {
+            "t8409InBlock": {
                 "shcode": shcode,
                 "ncnt": ncnt,
                 "qrycnt": qrycnt,
@@ -132,9 +95,9 @@ class SectorChartAPI:
                 "comp_yn": comp_yn,
             }
         }
-        return self._c.call("t8418", body)
+        return self._c.call("t8409", body)
 
-    def t8419(
+    def t8429(
         self,
         *,
         shcode: str | int = "",
@@ -145,15 +108,15 @@ class SectorChartAPI:
         cts_date: str | int = "",
         comp_yn: str | int = "",
     ) -> TRResponse:
-        """t8419 — 업종차트(일주월).
+        """t8429 — 업종차트(일주월).
 
         Endpoint : POST https://openapi.ls-sec.co.kr:8080/indtp/chart
         Rate/sec : 1
-        In  block: t8419InBlock
-        Out block(s): t8419OutBlock, t8419OutBlock1
+        In  block: t8429InBlock
+        Out block(s): t8429OutBlock, t8429OutBlock1
         """
         body = {
-            "t8419InBlock": {
+            "t8429InBlock": {
                 "shcode": shcode,
                 "gubun": gubun,
                 "qrycnt": qrycnt,
@@ -163,4 +126,4 @@ class SectorChartAPI:
                 "comp_yn": comp_yn,
             }
         }
-        return self._c.call("t8419", body)
+        return self._c.call("t8429", body)

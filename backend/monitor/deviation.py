@@ -1,6 +1,7 @@
-"""Periodic deviation ratio monitor.
+"""Deviation ratio monitor — reports at market open and close.
 
 Deviation ratio = (current price / 50-day moving average) x 100.
+A summary is sent at session start (장 시작) and session end (장 마감).
 Alerts when ratio >= deviation.threshold (default 130).
 """
 
@@ -14,7 +15,7 @@ from shared.queries import watchlist as watchlist_q
 
 from lsapi import AsyncLSClient as LSClient
 from monitor import notifier
-from monitor.market_hours import is_market_hours, seconds_until_market_open
+from monitor.market_hours import is_market_hours, seconds_until_market_close, seconds_until_market_open
 
 log = logging.getLogger(__name__)
 
@@ -27,23 +28,37 @@ _INDICES = [
     ("301", "코스닥"),
 ]
 
+# Stock names don't change; cache them to avoid redundant t1101 calls.
+_stock_name_cache: dict[str, str] = {}
+
 
 async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) -> list[float]:
-    resp = await client.call(
-        "t8419",
-        {
-            "t8419InBlock": {
-                "shcode": upcode,
-                "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월)
-                "qrycnt": count,
-                "sdate": "",
-                "edate": "99999999",
-                "cts_date": "",
-                "comp_yn": "N",
-            }
-        },
-    )
-    return [float(r["close"]) for r in (resp.block("t8419OutBlock1") or []) if r.get("close")]
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            resp = await client.call(
+                "t8419",
+                {
+                    "t8419InBlock": {
+                        "shcode": upcode,
+                        "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월)
+                        "qrycnt": count,
+                        "sdate": "",
+                        "edate": "99999999",
+                        "cts_date": "",
+                        "comp_yn": "N",
+                    }
+                },
+            )
+            return [float(r["close"]) for r in (resp.block("t8419OutBlock1") or []) if r.get("close")]
+        except Exception as e:
+            last_exc = e
+            if attempt == 0 and "IGW00201" in str(e):
+                log.warning("t8419 rate-limited for %s (IGW00201); retrying in 3s", upcode)
+                await asyncio.sleep(3)
+            else:
+                raise
+    raise last_exc  # type: ignore[misc]
 
 
 async def _fetch_stock_closes(client: LSClient, shcode: str, count: int = 60) -> list[float]:
@@ -67,9 +82,13 @@ async def _fetch_stock_closes(client: LSClient, shcode: str, count: int = 60) ->
 
 
 async def _fetch_stock_name(client: LSClient, shcode: str) -> str:
+    if shcode in _stock_name_cache:
+        return _stock_name_cache[shcode]
     try:
         resp = await client.call("t1101", shcode=shcode)
-        return (resp.block("t1101OutBlock") or {}).get("hname", shcode)
+        name = (resp.block("t1101OutBlock") or {}).get("hname", shcode)
+        _stock_name_cache[shcode] = name
+        return name
     except Exception:
         return shcode
 
@@ -96,25 +115,8 @@ async def _evaluate(code: str, name: str, closes: list[float]) -> None:
         await notifier.send_telegram(alert)
 
 
-async def _run_poll(client: LSClient) -> None:
-    """Run one deviation check cycle across indices and watchlist."""
-    for upcode, name in _INDICES:
-        closes = await _fetch_index_closes(client, upcode)
-        await _evaluate(upcode, name, closes)
-
-    for shcode in await watchlist_q.get_active_codes():
-        name = await _fetch_stock_name(client, shcode)
-        closes = await _fetch_stock_closes(client, shcode)
-        await _evaluate(shcode, name, closes)
-
-
-async def _run_eod_summary(client: LSClient, label: str = "장 마감") -> None:
-    """Calculate deviation ratios for all tracked items and send a summary.
-
-    Args:
-        client: Active LS API client.
-        label: Context label shown in the summary header ('장 마감' or '장 시작').
-    """
+async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
+    """Calculate deviation ratios for all tracked items and send a summary."""
     log.info("Running deviation summary (%s).", label)
     entries = []
 
@@ -146,7 +148,7 @@ async def _run_eod_summary(client: LSClient, label: str = "장 마감") -> None:
 async def monitor_deviation() -> None:
     async with LSClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as client:
         try:
-            await _run_eod_summary(client, label="서비스 시작")
+            await _run_summary(client, label="서비스 시작")
         except Exception as e:
             log.error("Startup summary error: %s", e)
             await notifier.notify_service_error("Deviation startup summary", e)
@@ -159,7 +161,7 @@ async def monitor_deviation() -> None:
                     session_active = False
                     morning_summary_sent = False
                     try:
-                        await _run_eod_summary(client)
+                        await _run_summary(client)
                     except Exception as e:
                         log.error("EOD summary error: %s", e)
                         await notifier.notify_service_error("Deviation EOD summary", e)
@@ -173,16 +175,13 @@ async def monitor_deviation() -> None:
 
             if not morning_summary_sent:
                 try:
-                    await _run_eod_summary(client, label="장 시작")
+                    await _run_summary(client, label="장 시작")
                 except Exception as e:
                     log.error("Morning summary error: %s", e)
                     await notifier.notify_service_error("Deviation morning summary", e)
                 morning_summary_sent = True
 
-            try:
-                await _run_poll(client)
-            except Exception as e:
-                log.error("Deviation poll error: %s", e)
-                await notifier.notify_service_error("Deviation poll", e)
-
-            await asyncio.sleep(cfg.deviation.poll_interval)
+            # Sleep until market close; loop will detect session end and send EOD summary.
+            wait = seconds_until_market_close()
+            log.info("Sleeping %.0fs until market close.", wait)
+            await asyncio.sleep(max(wait, 60))

@@ -4,3 +4,7 @@ services:
   postgres:
     ports:
       - "5432:5432"   # expose to host so alembic / psql can run from laptop
+
+  monitor:
+    environment:
+      LOG_LEVEL: DEBUG

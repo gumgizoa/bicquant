@@ -3273,7 +3273,7 @@
             "name": "pricejisu",
             "label": "종합지수",
             "type": "Int",
-            "length": "6.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -3289,7 +3289,7 @@
             "name": "jisuchange",
             "label": "종합지수전일대비",
             "type": "Int",
-            "length": "6.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -3305,7 +3305,7 @@
             "name": "kospijisu",
             "label": "KOSPI200지수",
             "type": "Int",
-            "length": "6.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -3321,7 +3321,7 @@
             "name": "kospichange",
             "label": "KOSPI200전일대비",
             "type": "Int",
-            "length": "6.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23064,7 +23064,7 @@
             "name": "pricejisu",
             "label": "현재지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23072,7 +23072,7 @@
             "name": "jniljisu",
             "label": "전일지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23088,7 +23088,7 @@
             "name": "change",
             "label": "전일대비",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23168,7 +23168,7 @@
             "name": "openjisu",
             "label": "시가지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23192,7 +23192,7 @@
             "name": "highjisu",
             "label": "고가지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23216,7 +23216,7 @@
             "name": "lowjisu",
             "label": "저가지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23240,7 +23240,7 @@
             "name": "whjisu",
             "label": "52주최고지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23288,7 +23288,7 @@
             "name": "yhjisu",
             "label": "연중최고지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23312,7 +23312,7 @@
             "name": "yljisu",
             "label": "연중최저지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23352,7 +23352,7 @@
             "name": "firstjisu",
             "label": "첫번째지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23368,7 +23368,7 @@
             "name": "firchange",
             "label": "첫번째전일대비",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23400,7 +23400,7 @@
             "name": "secondjisu",
             "label": "두번째지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23416,7 +23416,7 @@
             "name": "secchange",
             "label": "두번째전일대비",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23448,7 +23448,7 @@
             "name": "thirdjisu",
             "label": "세번째지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23464,7 +23464,7 @@
             "name": "thrchange",
             "label": "세번째전일대비",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23496,7 +23496,7 @@
             "name": "fourthjisu",
             "label": "네번째지수",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23512,7 +23512,7 @@
             "name": "forchange",
             "label": "네번째전일대비",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -23801,289 +23801,9 @@
       }
     }
   },
-  "t4203": {
+  "t8408": {
     "in_blocks": {
-      "t4203InBlock": {
-        "type": "Object",
-        "fields": [
-          {
-            "name": "shcode",
-            "label": "단축코드",
-            "type": "String",
-            "length": "3",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "gubun",
-            "label": "주기구분(0:틱1:분2:일3:주4:월)",
-            "type": "String",
-            "length": "1",
-            "required": true,
-            "description": "0:틱\n1:분\n2:일\n3:주\n4:월"
-          },
-          {
-            "name": "ncnt",
-            "label": "틱개수",
-            "type": "Int",
-            "length": "4",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "qrycnt",
-            "label": "건수",
-            "type": "Int",
-            "length": "4",
-            "required": true,
-            "description": "1 이상 500 이하값만 유효"
-          },
-          {
-            "name": "tdgb",
-            "label": "당일구분(0:전체1:당일만)",
-            "type": "String",
-            "length": "1",
-            "required": true,
-            "description": "0:전체\n1:당일만"
-          },
-          {
-            "name": "sdate",
-            "label": "시작일자",
-            "type": "String",
-            "length": "8",
-            "required": true,
-            "description": "조회구간종료일\nSpace:기본값"
-          },
-          {
-            "name": "edate",
-            "label": "종료일자",
-            "type": "String",
-            "length": "8",
-            "required": true,
-            "description": "처음조회기준일(LE)\n처음조회일 경우 이 값 기준으로 조회"
-          },
-          {
-            "name": "cts_date",
-            "label": "연속일자",
-            "type": "String",
-            "length": "8",
-            "required": true,
-            "description": "처음 조회시는 Space\n연속 조회시에 이전 조회한 OutBlock의 cts_date 값으로 설정"
-          },
-          {
-            "name": "cts_time",
-            "label": "연속시간",
-            "type": "String",
-            "length": "10",
-            "required": true,
-            "description": "처음 조회시는 Space\n연속 조회시에 이전 조회한 OutBlock의 cts_time 값으로 설정"
-          },
-          {
-            "name": "cts_daygb",
-            "label": "연속당일구분(0:연속전체1:연속당일만2:연속전일만)",
-            "type": "String",
-            "length": "1",
-            "required": true,
-            "description": "처음 조회시는 Space\n연속 조회시에 이전 조회한 OutBlock의 cts_daygb 값으로 설정"
-          }
-        ],
-        "description": ""
-      }
-    },
-    "out_blocks": {
-      "t4203OutBlock": {
-        "type": "Object",
-        "fields": [
-          {
-            "name": "shcode",
-            "label": "단축코드",
-            "type": "String",
-            "length": "3",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "jisiga",
-            "label": "전일시가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "jihigh",
-            "label": "전일고가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "jilow",
-            "label": "전일저가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "jiclose",
-            "label": "전일종가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "jivolume",
-            "label": "전일거래량",
-            "type": "Int",
-            "length": "12",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "disiga",
-            "label": "당일시가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "dihigh",
-            "label": "당일고가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "dilow",
-            "label": "당일저가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "diclose",
-            "label": "당일종가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "disvalue",
-            "label": "당일거래대금",
-            "type": "Int",
-            "length": "12",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "cts_date",
-            "label": "연속일자",
-            "type": "String",
-            "length": "8",
-            "required": true,
-            "description": "연속조회키\n연속 조회시 이 값을 InBlock의 cts_date 필드에 넣어준다."
-          },
-          {
-            "name": "cts_time",
-            "label": "연속시간",
-            "type": "String",
-            "length": "10",
-            "required": true,
-            "description": "연속조회키\n연속 조회시 이 값을 InBlock의 cts_time 필드에 넣어준다."
-          },
-          {
-            "name": "cts_daygb",
-            "label": "연속당일구분",
-            "type": "String",
-            "length": "1",
-            "required": true,
-            "description": "연속조회키\n연속 조회시 이 값을 InBlock의 cts_daygb 필드에 넣어준다."
-          }
-        ],
-        "description": ""
-      },
-      "t4203OutBlock1": {
-        "type": "Array",
-        "fields": [
-          {
-            "name": "date",
-            "label": "날짜",
-            "type": "String",
-            "length": "8",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "time",
-            "label": "시간",
-            "type": "String",
-            "length": "6",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "open",
-            "label": "시가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "high",
-            "label": "고가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "low",
-            "label": "저가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "close",
-            "label": "종가",
-            "type": "Int",
-            "length": "7.2",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "jdiff_vol",
-            "label": "거래량",
-            "type": "Int",
-            "length": "12",
-            "required": true,
-            "description": ""
-          },
-          {
-            "name": "value",
-            "label": "거래대금",
-            "type": "Int",
-            "length": "12",
-            "required": true,
-            "description": ""
-          }
-        ],
-        "description": ""
-      }
-    }
-  },
-  "t8417": {
-    "in_blocks": {
-      "t8417InBlock": {
+      "t8408InBlock": {
         "type": "Object",
         "fields": [
           {
@@ -24179,7 +23899,7 @@
       }
     },
     "out_blocks": {
-      "t8417OutBlock": {
+      "t8408OutBlock": {
         "type": "Object",
         "fields": [
           {
@@ -24194,7 +23914,7 @@
             "name": "jisiga",
             "label": "전일시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24202,7 +23922,7 @@
             "name": "jihigh",
             "label": "전일고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24210,7 +23930,7 @@
             "name": "jilow",
             "label": "전일저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24218,7 +23938,7 @@
             "name": "jiclose",
             "label": "전일종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24234,7 +23954,7 @@
             "name": "disiga",
             "label": "당일시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24242,7 +23962,7 @@
             "name": "dihigh",
             "label": "당일고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24250,7 +23970,7 @@
             "name": "dilow",
             "label": "당일저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24258,7 +23978,7 @@
             "name": "diclose",
             "label": "당일종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24313,7 +24033,7 @@
         ],
         "description": ""
       },
-      "t8417OutBlock1": {
+      "t8408OutBlock1": {
         "type": "Array",
         "fields": [
           {
@@ -24336,7 +24056,7 @@
             "name": "open",
             "label": "시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24344,7 +24064,7 @@
             "name": "high",
             "label": "고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24352,7 +24072,7 @@
             "name": "low",
             "label": "저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24360,7 +24080,7 @@
             "name": "close",
             "label": "종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24377,9 +24097,9 @@
       }
     }
   },
-  "t8418": {
+  "t8409": {
     "in_blocks": {
-      "t8418InBlock": {
+      "t8409InBlock": {
         "type": "Object",
         "fields": [
           {
@@ -24475,7 +24195,7 @@
       }
     },
     "out_blocks": {
-      "t8418OutBlock": {
+      "t8409OutBlock": {
         "type": "Object",
         "fields": [
           {
@@ -24490,7 +24210,7 @@
             "name": "jisiga",
             "label": "전일시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24498,7 +24218,7 @@
             "name": "jihigh",
             "label": "전일고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24506,7 +24226,7 @@
             "name": "jilow",
             "label": "전일저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24514,7 +24234,7 @@
             "name": "jiclose",
             "label": "전일종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24530,7 +24250,7 @@
             "name": "disiga",
             "label": "당일시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24538,7 +24258,7 @@
             "name": "dihigh",
             "label": "당일고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24546,7 +24266,7 @@
             "name": "dilow",
             "label": "당일저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24554,7 +24274,7 @@
             "name": "diclose",
             "label": "당일종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24617,7 +24337,7 @@
         ],
         "description": ""
       },
-      "t8418OutBlock1": {
+      "t8409OutBlock1": {
         "type": "Array",
         "fields": [
           {
@@ -24640,7 +24360,7 @@
             "name": "open",
             "label": "시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24648,7 +24368,7 @@
             "name": "high",
             "label": "고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24656,7 +24376,7 @@
             "name": "low",
             "label": "저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24664,7 +24384,7 @@
             "name": "close",
             "label": "종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24689,9 +24409,9 @@
       }
     }
   },
-  "t8419": {
+  "t8429": {
     "in_blocks": {
-      "t8419InBlock": {
+      "t8429InBlock": {
         "type": "Object",
         "fields": [
           {
@@ -24755,7 +24475,7 @@
       }
     },
     "out_blocks": {
-      "t8419OutBlock": {
+      "t8429OutBlock": {
         "type": "Object",
         "fields": [
           {
@@ -24770,7 +24490,7 @@
             "name": "jisiga",
             "label": "전일시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24778,7 +24498,7 @@
             "name": "jihigh",
             "label": "전일고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24786,7 +24506,7 @@
             "name": "jilow",
             "label": "전일저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24794,7 +24514,7 @@
             "name": "jiclose",
             "label": "전일종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24810,7 +24530,7 @@
             "name": "disiga",
             "label": "당일시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24818,7 +24538,7 @@
             "name": "dihigh",
             "label": "당일고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24826,7 +24546,7 @@
             "name": "dilow",
             "label": "당일저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24834,7 +24554,7 @@
             "name": "diclose",
             "label": "당일종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24889,7 +24609,7 @@
         ],
         "description": ""
       },
-      "t8419OutBlock1": {
+      "t8429OutBlock1": {
         "type": "Array",
         "fields": [
           {
@@ -24904,7 +24624,7 @@
             "name": "open",
             "label": "시가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24912,7 +24632,7 @@
             "name": "high",
             "label": "고가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24920,7 +24640,7 @@
             "name": "low",
             "label": "저가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -24928,7 +24648,7 @@
             "name": "close",
             "label": "종가",
             "type": "Int",
-            "length": "7.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -35395,7 +35115,7 @@
             "name": "jisu",
             "label": "KP200",
             "type": "Int",
-            "length": "6.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
@@ -35411,7 +35131,7 @@
             "name": "change",
             "label": "대비",
             "type": "Int",
-            "length": "6.2",
+            "length": "10.2",
             "required": true,
             "description": ""
           },
