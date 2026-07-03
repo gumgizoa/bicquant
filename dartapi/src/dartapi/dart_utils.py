@@ -87,13 +87,19 @@ def _get_session():
     raise last_err if last_err is not None else RuntimeError("failed to create DART session. please retry.")
 
 
+def _is_transient_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return any(kw in msg for kw in ("timed out", "timeout", "connection reset", "recv failure", "connection refused"))
+
+
 def _dart_get(url: str, **kwargs):
     """GET with curl_cffi session (browser TLS fingerprint)."""
+    global _session
     url = url.replace("http://dart.fss.or.kr", _BASE_URL)
     kwargs.setdefault("timeout", 30)
 
-    # DART occasionally times out on the first attempt (transient network/TLS),
-    # but succeeds immediately on retry. Retry once defensively.
+    # DART occasionally resets connections or times out (transient network/TLS).
+    # On the first failure we drop the session so the retry gets a fresh connection.
     last_err: Exception | None = None
     for attempt in range(2):
         try:
@@ -101,23 +107,21 @@ def _dart_get(url: str, **kwargs):
         except CurlCffiTimeout as e:
             last_err = e
             if attempt == 0:
-                time.sleep(0.1)
+                _session = None
+                time.sleep(0.5)
                 continue
             raise
         except Exception as e:
-            # If curl_cffi surfaces timeouts as other exception types, still retry once
-            # when the error clearly indicates a timeout.
             last_err = e
-            msg = str(e).lower()
-            if attempt == 0 and ("timed out" in msg or "timeout" in msg):
-                time.sleep(0.1)
+            if attempt == 0 and _is_transient_error(e):
+                _session = None
+                time.sleep(0.5)
                 continue
             raise
 
-    # Unreachable, but keeps type-checkers happy.
     if last_err is not None:
         raise last_err
-    raise RuntimeError("unexpected failure during session creation. please retry.")
+    raise RuntimeError("unexpected failure during _dart_get. please retry.")
 
 
 def list_dart_disclosures_by_date(

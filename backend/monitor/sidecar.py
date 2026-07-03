@@ -42,6 +42,24 @@ _CB_STATUS = {
     "71": "cb_l2_simul_close",
 }
 
+# Common market-session status codes (spec: jangubun 1=KOSPI, 2=KOSDAQ)
+_JSTATUS_COMMON = {
+    "11": "장전 동시호가 개시",
+    "21": "장 시작",
+    "22": "장 개시 10초 전",
+    "23": "장 개시 1분 전",
+    "24": "장 개시 5분 전",
+    "25": "장 개시 10분 전",
+    "31": "장후 동시호가 개시",
+    "41": "장 마감",
+    "42": "장 마감 10초 전",
+    "43": "장 마감 1분 전",
+    "44": "장 마감 5분 전",
+    "51": "시간외 종가매매 개시",
+    "52": "시간외 단일가매매 개시",
+    "54": "시간외 단일가매매 종료",
+}
+
 
 async def _fetch_index_snapshot(client: LSClient, upcode: str) -> dict:
     """Fetch current index level and daily change for context."""
@@ -68,30 +86,44 @@ async def handle_jif(rest: LSClient, msg: dict) -> None:
     sends a Telegram alert. ``rest`` is the active LS API client used for the
     snapshot.
     """
-    body = msg.get("body", {})
+    body = msg.get("body") or {}
     jangubun = body.get("jangubun", "")
     jstatus = body.get("jstatus", "")
 
-    if jangubun not in _MARKET:
-        return
+    log.info("JIF frame: jangubun=%r jstatus=%r", jangubun, jstatus)
 
-    market = _MARKET[jangubun]
+    if not jangubun and not jstatus:
+        return  # ACK 메시지 (body 없음)
 
-    if jstatus in _JSTATUS:
+    market = _MARKET.get(jangubun, jangubun)  # 알 수 없는 jangubun은 값 그대로 사용
+
+    if jstatus in _JSTATUS and jangubun in _MARKET:
         event_type = _JSTATUS[jstatus]
         log.info("Sidecar event: %s %s", market, event_type)
         index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
-        await sidecar_q.save_event(market, event_type, "", {**body, **index_info})
+        try:
+            await sidecar_q.save_event(market, event_type, "", {**body, **index_info})
+        except Exception:
+            log.exception("Failed to persist sidecar event (%s %s); sending alert anyway", market, event_type)
         alert = notifier.format_sidecar_alert(market, event_type, index_info)
         await notifier.send_telegram(alert)
 
-    elif jstatus in _CB_STATUS:
+    elif jstatus in _CB_STATUS and jangubun in _MARKET:
         event_type = _CB_STATUS[jstatus]
         log.info("Circuit breaker event: %s %s", market, event_type)
         index_info = await _fetch_index_snapshot(rest, _UPCODE[market])
-        await cb_q.save_event(market, event_type, "", {**body, **index_info})
+        try:
+            await cb_q.save_event(market, event_type, "", {**body, **index_info})
+        except Exception:
+            log.exception("Failed to persist circuit-breaker event (%s %s); sending alert anyway", market, event_type)
         alert = notifier.format_circuit_breaker_alert(market, event_type, index_info)
         await notifier.send_telegram(alert)
+
+    else:
+        label = _JSTATUS_COMMON.get(jstatus, f"알 수 없는 상태 ({jstatus})")
+        log.info("JIF status: jangubun=%s jstatus=%s %s", jangubun, jstatus, label)
+        if jangubun in _MARKET:
+            await notifier.send_telegram(notifier.format_jif_status(market, label))
 
 
 async def monitor_sidecar() -> None:
@@ -107,7 +139,7 @@ async def monitor_sidecar() -> None:
                 async with LSWebSocketClient(cfg.ls_api.app_key, cfg.ls_api.app_secret) as ws:
                     log.info("JIF WebSocket connected, watching for sidecar/CB events")
 
-                    await ws.subscribe("JIF", "", callback=partial(handle_jif, rest))
+                    await ws.subscribe("JIF", "0", callback=partial(handle_jif, rest))
 
                     secs = seconds_until_market_close()
                     log.info("Monitoring until market close in %.0fs.", secs)
