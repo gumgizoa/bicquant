@@ -378,3 +378,4 @@ mecab
 archive/
 **/data
 .claude/settings.json
+.claude/settings.local.json
