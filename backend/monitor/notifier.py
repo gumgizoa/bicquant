@@ -71,6 +71,11 @@ def format_service_error_alert(context: str, exc: BaseException) -> str:
     )
 
 
+def format_jif_status(market: str, label: str) -> str:
+    market_kr = MARKET_NAME.get(market, market)
+    return f"ℹ️ <b>{market_kr} {label}</b>"
+
+
 def format_sidecar_alert(market: str, event_type: str, index_info: dict) -> str:
     market_kr = MARKET_NAME.get(market, market)
     event_kr = EVENT_NAME.get(event_type, event_type)
@@ -117,7 +122,7 @@ def format_dart_daily_count(date_str: str, total: int, by_cls: dict) -> str:
     date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
     cls_label = {"유": "유가증권", "코": "코스닥"}
     lines = [
-        "📋 <b>오늘 공시 현황 (장 시작)</b>",
+        "📋 <b>오늘 공시 현황</b>",
         "",
         f"날짜: {date_fmt}",
         f"상장사 공시: {total}건",

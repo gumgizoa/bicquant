@@ -79,6 +79,10 @@ class LSRealtime:
         # Pending subscriptions to replay on (re)connect
         self._subs: list[tuple[str, str]] = []
 
+        # Rapid-disconnect tracking for token-rejection detection
+        self._last_open_time: float = 0.0
+        self._rapid_close_count: int = 0
+
     # --------------------------------------------------------- public API
 
     def on_message(self, handler: Handler) -> None:
@@ -170,6 +174,9 @@ class LSRealtime:
             on_close=self._on_close,
         )
 
+    # Connections that last shorter than this are treated as token-rejection "Bye"s.
+    _RAPID_CLOSE_THRESHOLD = 3.0
+
     def _run_ws(self) -> None:
         assert self._ws is not None
         while not self._stopping.is_set():
@@ -180,12 +187,29 @@ class LSRealtime:
             if not self._auto_reconnect or self._stopping.is_set():
                 break
             self._connected.clear()
-            time.sleep(1.0)
+
+            elapsed = time.time() - self._last_open_time if self._last_open_time else float("inf")
+            if elapsed < self._RAPID_CLOSE_THRESHOLD:
+                self._rapid_close_count += 1
+                if self._rapid_close_count == 1:
+                    # First rapid disconnect: token was likely rejected — invalidate it
+                    # so the next attempt fetches a fresh one from the API.
+                    log.warning("ws: rapid disconnect (%.2fs) — invalidating token and retrying", elapsed)
+                    self._auth.invalidate()
+                delay = min(1.0 * (2 ** min(self._rapid_close_count - 1, 6)), 60.0)
+                log.debug("ws: rapid_close_count=%d, reconnecting in %.0fs", self._rapid_close_count, delay)
+            else:
+                self._rapid_close_count = 0
+                delay = 1.0
+
+            time.sleep(delay)
             self._ws = self._new_app()  # rebuild so run_forever can be called again
         self._connected.clear()
 
     def _on_open(self, ws) -> None:  # noqa: ANN001
         log.info("ws open: %s", self._cfg.ws_url)
+        self._last_open_time = time.time()
+        self._rapid_close_count = 0
         self._connected.set()
         for tr_cd, tr_key in list(self._subs):  # replay subscriptions on reconnect
             self._send_register(tr_cd, tr_key)
@@ -200,12 +224,15 @@ class LSRealtime:
         body = msg.get("body") or {}
         tr_cd = header.get("tr_cd") or ""
         tr_key = header.get("tr_key") or body.get("tr_key") or ""
+        log.debug("ws rx: tr_cd=%r tr_key=%r rsp_cd=%r", tr_cd, tr_key, header.get("rsp_cd"))
         handler = None
         handlers = self._handlers.get(tr_cd)
         if handlers:
             handler = handlers.get(tr_key) or handlers.get("")
         if handler is None:
             handler = self._default_handler
+        if handler is None:
+            log.debug("ws rx: no handler for tr_cd=%r tr_key=%r (subscribed: %s)", tr_cd, tr_key, list(self._handlers))
         if handler is not None:
             try:
                 handler(msg)

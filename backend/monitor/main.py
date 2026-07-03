@@ -14,6 +14,7 @@ re-fires the deviation startup summary at an arbitrary time of day.
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 
 from shared import db
@@ -24,7 +25,7 @@ from monitor.deviation import monitor_deviation
 from monitor.sidecar import monitor_sidecar
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s %(name)-30s %(levelname)s %(message)s",
 )
 log = logging.getLogger(__name__)

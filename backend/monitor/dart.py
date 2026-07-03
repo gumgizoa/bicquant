@@ -83,6 +83,7 @@ def _seconds_until_dart_open() -> float:
 
 # Tracks rcept_no values already notified; cleared after DART disclosure hours.
 _seen_rcept_nos: set[str] = set()
+_consecutive_poll_errors: int = 0
 
 
 async def _fetch_disclosures(date_str: str, end_page: int) -> list[dict]:
@@ -123,13 +124,17 @@ async def _send_morning_summary(date_str: str) -> None:
 
 async def _check_new_disclosures(date_str: str) -> None:
     """Fetch recent disclosures and send a notification for each unseen one."""
+    global _consecutive_poll_errors
     try:
         disclosures = await _fetch_disclosures(date_str, _POLL_END_PAGE)
     except Exception as e:
-        log.error("DART poll fetch error: %s", e)
-        await notifier.notify_service_error("DART poll fetch", e)
+        _consecutive_poll_errors += 1
+        log.error("DART poll fetch error (#%d): %s", _consecutive_poll_errors, e)
+        if _consecutive_poll_errors == 1:
+            await notifier.notify_service_error("DART poll fetch", e)
         return
 
+    _consecutive_poll_errors = 0
     for d in disclosures:
         rcept_no = d["rcept_no"]
         if rcept_no not in _seen_rcept_nos:
