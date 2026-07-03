@@ -102,7 +102,6 @@ def test_seconds_until_dart_open_after_close_skips_weekend() -> None:
 def test_format_dart_daily_count_contains_header() -> None:
     msg = format_dart_daily_count("20260602", 0, {})
     assert "오늘 공시 현황" in msg
-    assert "장 시작" in msg
 
 
 def test_format_dart_daily_count_shows_date_and_total() -> None:

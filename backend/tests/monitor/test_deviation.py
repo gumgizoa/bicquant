@@ -15,7 +15,7 @@ from monitor.deviation import (
     _fetch_index_closes,
     _fetch_stock_closes,
     _fetch_stock_name,
-    _run_eod_summary,
+    _run_summary,
     monitor_deviation,
 )
 from monitor.notifier import format_deviation_summary
@@ -104,7 +104,7 @@ async def test_evaluate_skips_when_ma50_is_zero() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live: _run_eod_summary — real LS + watchlist (DB) + Telegram
+# Live: _run_summary — real LS + watchlist (DB) + Telegram
 # ---------------------------------------------------------------------------
 
 
@@ -113,7 +113,7 @@ async def test_run_eod_summary_live(ls_client, live_db, telegram) -> None:
     # Sends a real summary message for the two indices (+ any active watchlist
     # stocks) to the dev chat. Asserts the whole pipeline completes.
     # live_db must be requested so watchlist_q.get_active_codes() has an engine.
-    await _run_eod_summary(ls_client, label="테스트 요약")
+    await _run_summary(ls_client, label="테스트 요약")
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +151,9 @@ async def test_monitor_deviation_startup_summary_fires_before_loop() -> None:
         patch("monitor.deviation.cfg", _make_cfg_mock()),
         patch("monitor.deviation.LSClient", return_value=_make_ls_mock()),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
-        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
-        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation._run_summary", new_callable=AsyncMock) as mock_summary,
         patch("monitor.deviation.seconds_until_market_open", return_value=0.0),
+        patch("monitor.deviation.seconds_until_market_close", return_value=0.0),
         patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
     ):
         try:
@@ -181,9 +181,9 @@ async def test_monitor_deviation_morning_summary_fires_when_starting_outside_mar
         patch("monitor.deviation.cfg", _make_cfg_mock()),
         patch("monitor.deviation.LSClient", return_value=_make_ls_mock()),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
-        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
-        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation._run_summary", new_callable=AsyncMock) as mock_summary,
         patch("monitor.deviation.seconds_until_market_open", return_value=0.0),
+        patch("monitor.deviation.seconds_until_market_close", return_value=0.0),
         patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
     ):
         try:
@@ -212,9 +212,9 @@ async def test_monitor_deviation_morning_summary_resets_after_close() -> None:
         patch("monitor.deviation.cfg", _make_cfg_mock()),
         patch("monitor.deviation.LSClient", return_value=_make_ls_mock()),
         patch("monitor.deviation.is_market_hours", side_effect=fake_market_hours),
-        patch("monitor.deviation._run_eod_summary", new_callable=AsyncMock) as mock_summary,
-        patch("monitor.deviation._run_poll", new_callable=AsyncMock),
+        patch("monitor.deviation._run_summary", new_callable=AsyncMock) as mock_summary,
         patch("monitor.deviation.seconds_until_market_open", return_value=0.0),
+        patch("monitor.deviation.seconds_until_market_close", return_value=0.0),
         patch("monitor.deviation.asyncio.sleep", new_callable=AsyncMock),
     ):
         try:
