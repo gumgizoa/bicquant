@@ -37,9 +37,9 @@ async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) ->
     for attempt in range(2):
         try:
             resp = await client.call(
-                "t8419",
+                "t8429",
                 {
-                    "t8419InBlock": {
+                    "t8429InBlock": {
                         "shcode": upcode,
                         "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월)
                         "qrycnt": count,
@@ -50,7 +50,7 @@ async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) ->
                     }
                 },
             )
-            return [float(r["close"]) for r in (resp.block("t8419OutBlock1") or []) if r.get("close")]
+            return [float(r["close"]) for r in (resp.block("t8429OutBlock1") or []) if r.get("close")]
         except Exception as e:
             last_exc = e
             if attempt == 0 and "IGW00201" in str(e):
