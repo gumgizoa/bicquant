@@ -1,4 +1,8 @@
-"""Pure price-series metrics (no I/O), shared across services."""
+"""Maximum drawdown (MDD) metric — a bot-only feature.
+
+Pure computation used by the ``/mdd`` command. The LS data fetching and the
+Telegram glue live in ``bot.main`` alongside the other command handlers.
+"""
 
 from __future__ import annotations
 

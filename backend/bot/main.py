@@ -6,11 +6,11 @@ from langchain_core.messages import HumanMessage
 from langchain_openai.chat_models import AzureChatOpenAI
 from shared import db
 from shared.config import get_config
-from shared.metrics import max_drawdown
 from shared.queries import watchlist as watchlist_q
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
+from bot.features.mdd import max_drawdown
 from lsapi import AsyncLSClient as LSClient
 
 load_dotenv()
@@ -161,6 +161,8 @@ async def _fetch_us_daily_closes(symbol: str, count: int) -> list[tuple[str, flo
     """(date, close) daily bars for a US stock, oldest first, via g3103.
 
     g3103 returns rows newest-first, so they are re-sorted ascending by date.
+    ``count`` is accepted for symmetry with the KR fetcher; g3103 has no query
+    count and returns a fixed recent window.
     """
     client = _get_ls_client()
     for exchcd in ("82", "81"):  # 82=NASDAQ, 81=NYSE/AMEX

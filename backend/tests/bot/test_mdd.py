@@ -5,11 +5,11 @@ the real LS API to verify the daily-close fetch helpers.
 """
 
 import pytest
-from shared.metrics import max_drawdown
+from bot.features.mdd import max_drawdown
 
-# NOTE: bot.main is imported lazily inside the live tests below — importing it
-# initialises the Azure LLM / Telegram config, which the offline pure tests
-# (max_drawdown math) must not require.
+# NOTE: the LS fetch helpers live in bot.main and are imported lazily inside the
+# live tests below — importing bot.main initialises the Azure LLM / Telegram
+# config, which the offline pure tests (max_drawdown math) must not require.
 
 # ---------------------------------------------------------------------------
 # max_drawdown — pure function
