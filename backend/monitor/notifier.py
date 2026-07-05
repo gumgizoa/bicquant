@@ -158,16 +158,6 @@ def format_dart_new_disclosure(d: dict) -> str:
     )
 
 
-def format_deviation_alert(code: str, name: str, current: float, ma50: float, ratio: float) -> str:
-    return (
-        f"📊 <b>이격도 알림</b>\n\n"
-        f"종목: {name} ({code})\n"
-        f"현재가: {current:,.2f}\n"
-        f"50일 MA: {ma50:,.2f}\n"
-        f"이격도: <b>{ratio:.1f}</b> (기준: {cfg.deviation.threshold:.0f})"
-    )
-
-
 def format_deviation_summary(entries: list[dict], threshold: float, label: str = "장 마감") -> str:
     """Format a deviation ratio summary for all tracked items.
 
@@ -210,4 +200,26 @@ def format_adr_summary(entries: list[dict], overbought: float, oversold: float, 
             lines.append(f"🔻 {e['name']} ({e['code']}): <b>{adr:.1f}</b> (바닥)")
         else:
             lines.append(f"• {e['name']} ({e['code']}): {adr:.1f}")
+    return "\n".join(lines)
+
+
+def format_mdd_summary(entries: list[dict], alert_threshold: float, period: int, label: str = "장 마감") -> str:
+    """Format a maximum-drawdown summary for watchlist stocks.
+
+    Args:
+        entries: List of dicts with keys: code, name, mdd (non-positive %).
+        alert_threshold: Flag ⚠️ when mdd is at or below this (more negative) %.
+        period: Number of trading days the MDD is measured over (header only).
+        label: Context label shown in the header (e.g. '장 마감', '장 시작').
+
+    Returns:
+        HTML-formatted Telegram message.
+    """
+    lines = [f"📉 <b>MDD 일일 요약 ({label}, 최근 {period} 거래일)</b>", ""]
+    for e in entries:
+        mdd = e["mdd"]
+        if mdd <= alert_threshold:
+            lines.append(f"⚠️ {e['name']} ({e['code']}): <b>{mdd:.1f}%</b>")
+        else:
+            lines.append(f"• {e['name']} ({e['code']}): {mdd:.1f}%")
     return "\n".join(lines)

@@ -11,22 +11,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from monitor.deviation import (
-    _evaluate,
     _fetch_adr,
     _fetch_index_closes,
     _fetch_stock_closes,
     _fetch_stock_name,
+    _max_drawdown_pct,
     _run_summary,
     monitor_deviation,
 )
-from monitor.notifier import format_adr_summary, format_deviation_summary
-from shared.models import DeviationAlert
-
-
-def _closes(ratio: float, ma50: float = 100.0) -> list[float]:
-    """Build a closes list where MA50 == ma50 and current/MA50*100 == ratio."""
-    return [ma50] * 50 + [ma50 * ratio / 100]
-
+from monitor.notifier import format_adr_summary, format_deviation_summary, format_mdd_summary
 
 # ---------------------------------------------------------------------------
 # Live: LS API data fetching
@@ -103,56 +96,6 @@ async def test_fetch_adr_returns_none_when_no_declines() -> None:
 
 async def test_fetch_adr_returns_none_when_empty() -> None:
     assert await _fetch_adr(_adr_client([]), "001", period=20) is None
-
-
-# ---------------------------------------------------------------------------
-# Live: _evaluate end-to-end (LS not needed — synthetic closes; real DB + Telegram)
-# ---------------------------------------------------------------------------
-
-_TEST_CODE = "TST_DEV"
-
-
-@pytest.mark.slow
-async def test_evaluate_above_threshold_writes_alert(live_db, telegram) -> None:
-    before = await live_db.max_id(DeviationAlert)
-    try:
-        await _evaluate(_TEST_CODE, "테스트종목", _closes(131.0, ma50=50_000.0))
-
-        rows = await live_db.rows_after(DeviationAlert, before)
-        assert len(rows) == 1
-        row = rows[0]
-        assert row.target_code == _TEST_CODE
-        assert abs(float(row.deviation_ratio) - 131.0) < 0.01
-        assert abs(float(row.current_value) - 65_500.0) < 1
-    finally:
-        await live_db.delete_after(DeviationAlert, before)
-
-
-@pytest.mark.slow
-async def test_evaluate_below_threshold_writes_nothing(live_db) -> None:
-    before = await live_db.max_id(DeviationAlert)
-    try:
-        await _evaluate(_TEST_CODE, "테스트종목", _closes(120.0))
-
-        rows = await live_db.rows_after(DeviationAlert, before)
-        assert rows == []
-    finally:
-        await live_db.delete_after(DeviationAlert, before)
-
-
-# ---------------------------------------------------------------------------
-# _evaluate guard clauses — return early before any external call (offline)
-# ---------------------------------------------------------------------------
-
-
-async def test_evaluate_skips_when_data_insufficient() -> None:
-    # 50 points (<51) → returns before touching DB/Telegram.
-    await _evaluate("001", "코스피", [100.0] * 50)
-
-
-async def test_evaluate_skips_when_ma50_is_zero() -> None:
-    # MA50 == 0 → returns before touching DB/Telegram.
-    await _evaluate("001", "코스피", [0.0] * 50 + [130.0])
 
 
 # ---------------------------------------------------------------------------
@@ -366,5 +309,65 @@ def test_format_adr_summary_neutral_not_flagged() -> None:
 
 def test_format_adr_summary_custom_label() -> None:
     msg = format_adr_summary([], overbought=120.0, oversold=75.0, label="장 시작")
+    assert "장 시작" in msg
+    assert "장 마감" not in msg
+
+
+# ---------------------------------------------------------------------------
+# _max_drawdown_pct — pure function
+# ---------------------------------------------------------------------------
+
+
+def test_max_drawdown_pct_simple_peak_to_trough() -> None:
+    assert _max_drawdown_pct([100.0, 60.0]) == pytest.approx(-40.0)
+
+
+def test_max_drawdown_pct_monotonic_increase_is_zero() -> None:
+    assert _max_drawdown_pct([10.0, 20.0, 30.0]) == 0.0
+
+
+def test_max_drawdown_pct_uses_running_peak_not_global() -> None:
+    # 100 -> 50 (-50%), recovers to 200 -> 120 (-40%); worst is -50%
+    assert _max_drawdown_pct([100.0, 50.0, 200.0, 120.0]) == pytest.approx(-50.0)
+
+
+def test_max_drawdown_pct_empty_is_zero() -> None:
+    assert _max_drawdown_pct([]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# format_mdd_summary — pure function
+# ---------------------------------------------------------------------------
+
+
+def test_format_mdd_summary_contains_header_with_period() -> None:
+    msg = format_mdd_summary([], alert_threshold=-20.0, period=60)
+    assert "MDD 일일 요약" in msg
+    assert "60 거래일" in msg
+
+
+def test_format_mdd_summary_flags_entry_at_or_below_threshold() -> None:
+    entries = [{"code": "005930", "name": "삼성전자", "mdd": -25.3}]
+    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
+    assert "⚠️" in msg
+    assert "<b>-25.3%</b>" in msg
+    assert "삼성전자" in msg
+
+
+def test_format_mdd_summary_no_flag_above_threshold() -> None:
+    entries = [{"code": "035720", "name": "카카오", "mdd": -12.1}]
+    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
+    assert "⚠️" not in msg
+    assert "-12.1%" in msg
+
+
+def test_format_mdd_summary_flags_at_exact_threshold() -> None:
+    entries = [{"code": "005930", "name": "삼성전자", "mdd": -20.0}]
+    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
+    assert "⚠️" in msg
+
+
+def test_format_mdd_summary_custom_label() -> None:
+    msg = format_mdd_summary([], alert_threshold=-20.0, period=60, label="장 시작")
     assert "장 시작" in msg
     assert "장 마감" not in msg

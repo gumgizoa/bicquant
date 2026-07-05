@@ -18,7 +18,7 @@ import pytest
 
 
 def _compute_deviation(closes: list[float]) -> float:
-    """Mirror of the logic in deviation.py._evaluate."""
+    """Mirror of the deviation-ratio logic in deviation.py._run_summary."""
     current = closes[-1]
     ma50 = float(np.mean(closes[-51:-1]))
     return current / ma50 * 100
