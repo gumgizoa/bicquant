@@ -187,3 +187,27 @@ def format_deviation_summary(entries: list[dict], threshold: float, label: str =
         else:
             lines.append(f"• {e['name']} ({e['code']}): {ratio:.1f}")
     return "\n".join(lines)
+
+
+def format_adr_summary(entries: list[dict], overbought: float, oversold: float, label: str = "장 마감") -> str:
+    """Format an ADR (advance-decline ratio) summary for the market indices.
+
+    Args:
+        entries: List of dicts with keys: code, name, adr.
+        overbought: ADR at or above this is flagged 과열 (overbought).
+        oversold: ADR at or below this is flagged 바닥 (oversold).
+        label: Context label shown in the header (e.g. '장 마감', '장 시작').
+
+    Returns:
+        HTML-formatted Telegram message.
+    """
+    lines = [f"📈 <b>ADR 일일 요약 ({label})</b>", ""]
+    for e in entries:
+        adr = e["adr"]
+        if adr >= overbought:
+            lines.append(f"⚠️ {e['name']} ({e['code']}): <b>{adr:.1f}</b> (과열)")
+        elif adr <= oversold:
+            lines.append(f"🔻 {e['name']} ({e['code']}): <b>{adr:.1f}</b> (바닥)")
+        else:
+            lines.append(f"• {e['name']} ({e['code']}): {adr:.1f}")
+    return "\n".join(lines)

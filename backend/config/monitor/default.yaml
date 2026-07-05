@@ -7,3 +7,10 @@ deviation:
   threshold: 130.0
   # Seconds between polls during market hours (09:00–15:30 KST)
   poll_interval: 600
+
+adr:
+  # ADR = 100 * sum(advancing issues) / sum(declining issues) over `period` days
+  period: 20
+  # >= overbought: 과열권, <= oversold: 바닥권
+  overbought: 120.0
+  oversold: 75.0
