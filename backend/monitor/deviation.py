@@ -1,8 +1,11 @@
-"""Deviation ratio monitor — reports at market open and close.
+"""Deviation ratio + ADR monitor — reports at market open and close.
 
 Deviation ratio = (current price / 50-day moving average) x 100.
-A summary is sent at session start (장 시작) and session end (장 마감).
-Alerts when ratio >= deviation.threshold (default 130).
+ADR (advance-decline ratio) = 100 x (sum of advancing issues) /
+(sum of declining issues) over the last ``adr.period`` trading days, per market
+index. A single combined summary (이격도 + ADR) is sent at session start
+(장 시작) and session end (장 마감). Deviation entries alert individually when
+ratio >= deviation.threshold (default 130).
 """
 
 import asyncio
@@ -93,6 +96,46 @@ async def _fetch_stock_name(client: LSClient, shcode: str) -> str:
         return shcode
 
 
+async def _fetch_adr(client: LSClient, upcode: str, period: int) -> float | None:
+    """Advance-decline ratio (ADR) for a market index via t1514 (업종기간별추이).
+
+    ADR = 100 * sum(advancing issues) / sum(declining issues) over the most
+    recent ``period`` daily bars. Returns ``None`` when data is unavailable or
+    the declining-issue sum is zero (avoids divide-by-zero).
+    """
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            resp = await client.call(
+                "t1514",
+                {
+                    "t1514InBlock": {
+                        "upcode": upcode,
+                        "gubun1": "",  # unused per spec
+                        "gubun2": "1",  # daily bars (spec: 1=일, 2=주, 3=월)
+                        "cts_date": "",
+                        "cnt": period,
+                        "rate_gbn": "",
+                    }
+                },
+            )
+            rows = resp.block("t1514OutBlock1") or []
+            rows = sorted(rows, key=lambda r: r.get("date", ""))[-period:]
+            up_sum = sum(int(float(r["high"])) for r in rows if str(r.get("high", "")).strip())
+            down_sum = sum(int(float(r["low"])) for r in rows if str(r.get("low", "")).strip())
+            if down_sum == 0:
+                return None
+            return 100.0 * up_sum / down_sum
+        except Exception as e:
+            last_exc = e
+            if attempt == 0 and "IGW00201" in str(e):
+                log.warning("t1514 rate-limited for %s (IGW00201); retrying in 3s", upcode)
+                await asyncio.sleep(3)
+            else:
+                raise
+    raise last_exc  # type: ignore[misc]
+
+
 async def _evaluate(code: str, name: str, closes: list[float]) -> None:
     """Compute deviation ratio and alert if over threshold."""
     if len(closes) < 51:
@@ -137,12 +180,23 @@ async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
             if ma50 > 0:
                 entries.append({"code": shcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
 
-    if not entries:
-        log.warning("Deviation summary (%s): no data available.", label)
+    # ADR (advance-decline ratio) for the market indices — same message.
+    adr_entries = []
+    for upcode, name in _INDICES:
+        adr = await _fetch_adr(client, upcode, cfg.adr.period)
+        if adr is not None:
+            adr_entries.append({"code": upcode, "name": name, "adr": adr})
+
+    if not entries and not adr_entries:
+        log.warning("Summary (%s): no data available.", label)
         return
 
-    msg = notifier.format_deviation_summary(entries, cfg.deviation.threshold, label=label)
-    await notifier.send_telegram(msg)
+    parts = []
+    if entries:
+        parts.append(notifier.format_deviation_summary(entries, cfg.deviation.threshold, label=label))
+    if adr_entries:
+        parts.append(notifier.format_adr_summary(adr_entries, cfg.adr.overbought, cfg.adr.oversold, label=label))
+    await notifier.send_telegram("\n\n".join(parts))
 
 
 async def monitor_deviation() -> None:

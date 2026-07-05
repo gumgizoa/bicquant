@@ -12,13 +12,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from monitor.deviation import (
     _evaluate,
+    _fetch_adr,
     _fetch_index_closes,
     _fetch_stock_closes,
     _fetch_stock_name,
     _run_summary,
     monitor_deviation,
 )
-from monitor.notifier import format_deviation_summary
+from monitor.notifier import format_adr_summary, format_deviation_summary
 from shared.models import DeviationAlert
 
 
@@ -51,6 +52,57 @@ async def test_fetch_stock_closes_live(ls_client) -> None:
 async def test_fetch_stock_name_live(ls_client) -> None:
     name = await _fetch_stock_name(ls_client, "005930")
     assert name == "삼성전자"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("upcode", ["001", "301"])
+async def test_fetch_adr_live(ls_client, upcode: str) -> None:
+    adr = await _fetch_adr(ls_client, upcode, period=20)
+    assert adr is not None and adr > 0
+
+
+# ---------------------------------------------------------------------------
+# _fetch_adr — math with a mocked client (no LS/network)
+# ---------------------------------------------------------------------------
+
+
+def _adr_client(rows: list[dict]) -> AsyncMock:
+    """Build a mock AsyncLSClient whose t1514 call returns `rows`."""
+    resp = MagicMock()
+    resp.block.return_value = rows
+    client = AsyncMock()
+    client.call.return_value = resp
+    return client
+
+
+async def test_fetch_adr_computes_ratio() -> None:
+    # advances: 60+40=100, declines: 30+20=50 -> ADR = 100 * 100/50 = 200
+    rows = [
+        {"date": "20260101", "high": "60", "low": "30"},
+        {"date": "20260102", "high": "40", "low": "20"},
+    ]
+    adr = await _fetch_adr(_adr_client(rows), "001", period=20)
+    assert adr == pytest.approx(200.0)
+
+
+async def test_fetch_adr_takes_most_recent_period() -> None:
+    # oldest row (advances=999) must be dropped when period=2
+    rows = [
+        {"date": "20251230", "high": "999", "low": "1"},
+        {"date": "20260101", "high": "60", "low": "30"},
+        {"date": "20260102", "high": "40", "low": "20"},
+    ]
+    adr = await _fetch_adr(_adr_client(rows), "001", period=2)
+    assert adr == pytest.approx(200.0)
+
+
+async def test_fetch_adr_returns_none_when_no_declines() -> None:
+    rows = [{"date": "20260101", "high": "10", "low": "0"}]
+    assert await _fetch_adr(_adr_client(rows), "001", period=20) is None
+
+
+async def test_fetch_adr_returns_none_when_empty() -> None:
+    assert await _fetch_adr(_adr_client([]), "001", period=20) is None
 
 
 # ---------------------------------------------------------------------------
@@ -275,5 +327,44 @@ def test_format_deviation_summary_default_label_is_eod() -> None:
 
 def test_format_deviation_summary_custom_label() -> None:
     msg = format_deviation_summary([], threshold=130.0, label="장 시작")
+    assert "장 시작" in msg
+    assert "장 마감" not in msg
+
+
+# ---------------------------------------------------------------------------
+# format_adr_summary — pure function
+# ---------------------------------------------------------------------------
+
+
+def test_format_adr_summary_contains_header() -> None:
+    msg = format_adr_summary([], overbought=120.0, oversold=75.0)
+    assert "ADR 일일 요약" in msg
+
+
+def test_format_adr_summary_flags_overbought() -> None:
+    entries = [{"code": "001", "name": "코스피", "adr": 125.0}]
+    msg = format_adr_summary(entries, overbought=120.0, oversold=75.0)
+    assert "⚠️" in msg
+    assert "과열" in msg
+    assert "<b>125.0</b>" in msg
+
+
+def test_format_adr_summary_flags_oversold() -> None:
+    entries = [{"code": "301", "name": "코스닥", "adr": 70.0}]
+    msg = format_adr_summary(entries, overbought=120.0, oversold=75.0)
+    assert "🔻" in msg
+    assert "바닥" in msg
+
+
+def test_format_adr_summary_neutral_not_flagged() -> None:
+    entries = [{"code": "001", "name": "코스피", "adr": 100.0}]
+    msg = format_adr_summary(entries, overbought=120.0, oversold=75.0)
+    assert "⚠️" not in msg
+    assert "🔻" not in msg
+    assert "100.0" in msg
+
+
+def test_format_adr_summary_custom_label() -> None:
+    msg = format_adr_summary([], overbought=120.0, oversold=75.0, label="장 시작")
     assert "장 시작" in msg
     assert "장 마감" not in msg

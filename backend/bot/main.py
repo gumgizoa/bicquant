@@ -10,6 +10,7 @@ from shared.queries import watchlist as watchlist_q
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
+from bot.features.mdd import max_drawdown
 from lsapi import AsyncLSClient as LSClient
 
 load_dotenv()
@@ -132,6 +133,63 @@ async def _fetch_us_stock(symbol: str) -> str:
     raise ValueError(f"'{symbol}' 데이터를 가져올 수 없습니다.")
 
 
+async def _fetch_kr_daily_closes(shcode: str, count: int) -> list[tuple[str, float]]:
+    """(date, close) daily bars for a KR stock, oldest first, via t8451."""
+    client = _get_ls_client()
+    resp = await client.call(
+        "t8451",
+        {
+            "t8451InBlock": {
+                "shcode": shcode,
+                "gubun": "2",  # daily bars
+                "qrycnt": count,
+                "sdate": "",
+                "edate": "99999999",
+                "cts_date": "",
+                "comp_yn": "N",
+                "sujung": "1",  # adjusted price
+                "exchgubun": "K",
+            }
+        },
+    )
+    rows = resp.block("t8451OutBlock1") or []
+    rows = sorted(rows, key=lambda r: r.get("date", ""))
+    return [(r["date"], float(r["close"])) for r in rows if str(r.get("close", "")).strip()]
+
+
+async def _fetch_us_daily_closes(symbol: str, count: int) -> list[tuple[str, float]]:
+    """(date, close) daily bars for a US stock, oldest first, via g3103.
+
+    g3103 returns rows newest-first, so they are re-sorted ascending by date.
+    ``count`` is accepted for symmetry with the KR fetcher; g3103 has no query
+    count and returns a fixed recent window.
+    """
+    client = _get_ls_client()
+    for exchcd in ("82", "81"):  # 82=NASDAQ, 81=NYSE/AMEX
+        try:
+            resp = await client.call(
+                "g3103",
+                {
+                    "g3103InBlock": {
+                        "delaygb": "R",
+                        "keysymbol": f"{exchcd}{symbol}",
+                        "exchcd": exchcd,
+                        "symbol": symbol,
+                        "gubun": "2",  # daily bars
+                        "date": "",
+                    }
+                },
+            )
+            rows = resp.block("g3103OutBlock1") or []
+            if not rows:
+                continue
+            rows = sorted(rows, key=lambda r: r.get("chedate", ""))
+            return [(r["chedate"], float(r["price"])) for r in rows if str(r.get("price", "")).strip()]
+        except Exception:
+            continue
+    raise ValueError(f"'{symbol}' 데이터를 가져올 수 없습니다.")
+
+
 async def _resolve_name(code: str) -> str | None:
     """Best-effort stock name lookup for watchlist labelling. KR only."""
     if not _is_kr_code(code):
@@ -149,6 +207,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "BicQuant 봇이 실행 중이에요.\n\n"
         "/stock {티커}   — 주가 조회\n"
+        "/mdd {티커} {기간} — 최대낙폭(MDD) 조회\n"
         "/watch {코드}   — 관심종목 추가\n"
         "/unwatch {코드} — 관심종목 삭제\n"
         "/watchlist      — 관심종목 목록\n"
@@ -191,6 +250,65 @@ async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logging.error(f"stock error for {ticker}: {e}")
         await update.message.reply_text(f"Failed to fetch data for '{ticker}'.")
+
+
+def _fmt_date(yyyymmdd: str) -> str:
+    return f"{yyyymmdd[:4]}-{yyyymmdd[4:6]}-{yyyymmdd[6:8]}" if len(yyyymmdd) == 8 else yyyymmdd
+
+
+async def mdd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _allowed(update):
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("사용법: /mdd {티커} {기간(거래일)} (예: /mdd 005930 60 또는 /mdd AAPL 120)")
+        return
+
+    ticker = context.args[0].upper()
+    try:
+        period = int(context.args[1])
+        if period < 2:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("기간은 2 이상의 정수(거래일 수)여야 해요.")
+        return
+    period = min(period, 500)  # t8451 qrycnt cap
+
+    is_kr = _is_kr_code(ticker)
+    try:
+        if is_kr:
+            series = await _fetch_kr_daily_closes(ticker, period)
+        else:
+            series = await _fetch_us_daily_closes(ticker, period)
+    except Exception as e:
+        logging.error(f"mdd fetch error for {ticker}: {e}")
+        await update.message.reply_text(f"'{ticker}' 데이터를 가져올 수 없어요.")
+        return
+
+    series = series[-period:]  # most recent `period` bars
+    if len(series) < 2:
+        await update.message.reply_text(f"'{ticker}' 가격 데이터가 부족해요 ({len(series)}일).")
+        return
+
+    dates = [d for d, _ in series]
+    closes = [c for _, c in series]
+    res = max_drawdown(closes)
+
+    if is_kr:
+        name = await _resolve_name(ticker)
+        label = f"{name} ({ticker})" if name else ticker
+        flag, cur, fmt = "🇰🇷", "₩", ",.0f"
+    else:
+        label, flag, cur, fmt = ticker, "🇺🇸", "$", ",.2f"
+
+    await update.message.reply_text(
+        f"📉 <b>MDD — {label}</b> {flag}\n"
+        f"기간: 최근 {len(series)} 거래일 ({_fmt_date(dates[0])} ~ {_fmt_date(dates[-1])})\n"
+        f"최대낙폭: <b>{res.mdd_pct:.2f}%</b>\n"
+        f"고점: {cur}{closes[res.peak_idx]:{fmt}} ({_fmt_date(dates[res.peak_idx])})\n"
+        f"저점: {cur}{closes[res.trough_idx]:{fmt}} ({_fmt_date(dates[res.trough_idx])})",
+        parse_mode="HTML",
+    )
 
 
 async def watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -275,6 +393,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ask", ask))
     app.add_handler(CommandHandler("stock", stock))
+    app.add_handler(CommandHandler("mdd", mdd))
     app.add_handler(CommandHandler("watch", watch))
     app.add_handler(CommandHandler("unwatch", unwatch))
     app.add_handler(CommandHandler("watchlist", watchlist))
