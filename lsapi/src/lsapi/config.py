@@ -10,6 +10,14 @@ DEFAULT_REST_BASE = "https://openapi.ls-sec.co.kr:8080"
 DEFAULT_WS_URL = "wss://openapi.ls-sec.co.kr:9443/websocket"
 DEFAULT_CACHE_DIR = Path.home() / ".lsapi"
 
+# Environment-variable name per config field. Fields listed here override the
+# default ``LS_<FIELD>`` convention; credentials use the ``LS_OPENAPI_*``
+# spellings from this repo's ``.env``.
+_ENV_NAMES: dict[str, str] = {
+    "appkey": "LS_OPENAPI_APP_KEY",
+    "appsecret": "LS_OPENAPI_APP_SECRET",
+}
+
 
 @dataclass
 class LSConfig:
@@ -17,7 +25,8 @@ class LSConfig:
 
     Missing credentials fall back to environment variables::
 
-        LS_APPKEY, LS_APPSECRET, LS_REST_BASE, LS_WS_URL, LS_CACHE_DIR
+        LS_OPENAPI_APP_KEY, LS_OPENAPI_APP_SECRET,
+        LS_REST_BASE, LS_WS_URL, LS_CACHE_DIR
 
     Both ``app_key``/``app_secret`` and ``appkey``/``appsecret`` spellings are
     accepted by :meth:`from_env` so existing call sites keep working.
@@ -53,7 +62,7 @@ class LSConfig:
         def pick(name: str, default: object) -> object:
             if name in overrides and overrides[name] is not None:
                 return overrides[name]
-            env = os.environ.get("LS_" + name.upper())
+            env = os.environ.get(_ENV_NAMES.get(name, "LS_" + name.upper()))
             return env if env else default
 
         return cls(
@@ -71,4 +80,4 @@ class LSConfig:
 
     def ensure_credentials(self) -> None:
         if not self.appkey or not self.appsecret:
-            raise ValueError("appkey/appsecret missing — pass them to LSClient or set LS_APPKEY / LS_APPSECRET environment variables.")
+            raise ValueError("appkey/appsecret missing — set LS_OPENAPI_APP_KEY / LS_OPENAPI_APP_SECRET or pass them to LSClient.")
