@@ -211,3 +211,25 @@ def format_adr_summary(entries: list[dict], overbought: float, oversold: float, 
         else:
             lines.append(f"• {e['name']} ({e['code']}): {adr:.1f}")
     return "\n".join(lines)
+
+
+def format_mdd_summary(entries: list[dict], alert_threshold: float, period: int, label: str = "장 마감") -> str:
+    """Format a maximum-drawdown summary for watchlist stocks.
+
+    Args:
+        entries: List of dicts with keys: code, name, mdd (non-positive %).
+        alert_threshold: Flag ⚠️ when mdd is at or below this (more negative) %.
+        period: Number of trading days the MDD is measured over (header only).
+        label: Context label shown in the header (e.g. '장 마감', '장 시작').
+
+    Returns:
+        HTML-formatted Telegram message.
+    """
+    lines = [f"📉 <b>MDD 일일 요약 ({label}, 최근 {period} 거래일)</b>", ""]
+    for e in entries:
+        mdd = e["mdd"]
+        if mdd <= alert_threshold:
+            lines.append(f"⚠️ {e['name']} ({e['code']}): <b>{mdd:.1f}%</b>")
+        else:
+            lines.append(f"• {e['name']} ({e['code']}): {mdd:.1f}%")
+    return "\n".join(lines)

@@ -16,10 +16,11 @@ from monitor.deviation import (
     _fetch_index_closes,
     _fetch_stock_closes,
     _fetch_stock_name,
+    _max_drawdown_pct,
     _run_summary,
     monitor_deviation,
 )
-from monitor.notifier import format_adr_summary, format_deviation_summary
+from monitor.notifier import format_adr_summary, format_deviation_summary, format_mdd_summary
 from shared.models import DeviationAlert
 
 
@@ -366,5 +367,65 @@ def test_format_adr_summary_neutral_not_flagged() -> None:
 
 def test_format_adr_summary_custom_label() -> None:
     msg = format_adr_summary([], overbought=120.0, oversold=75.0, label="장 시작")
+    assert "장 시작" in msg
+    assert "장 마감" not in msg
+
+
+# ---------------------------------------------------------------------------
+# _max_drawdown_pct — pure function
+# ---------------------------------------------------------------------------
+
+
+def test_max_drawdown_pct_simple_peak_to_trough() -> None:
+    assert _max_drawdown_pct([100.0, 60.0]) == pytest.approx(-40.0)
+
+
+def test_max_drawdown_pct_monotonic_increase_is_zero() -> None:
+    assert _max_drawdown_pct([10.0, 20.0, 30.0]) == 0.0
+
+
+def test_max_drawdown_pct_uses_running_peak_not_global() -> None:
+    # 100 -> 50 (-50%), recovers to 200 -> 120 (-40%); worst is -50%
+    assert _max_drawdown_pct([100.0, 50.0, 200.0, 120.0]) == pytest.approx(-50.0)
+
+
+def test_max_drawdown_pct_empty_is_zero() -> None:
+    assert _max_drawdown_pct([]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# format_mdd_summary — pure function
+# ---------------------------------------------------------------------------
+
+
+def test_format_mdd_summary_contains_header_with_period() -> None:
+    msg = format_mdd_summary([], alert_threshold=-20.0, period=60)
+    assert "MDD 일일 요약" in msg
+    assert "60 거래일" in msg
+
+
+def test_format_mdd_summary_flags_entry_at_or_below_threshold() -> None:
+    entries = [{"code": "005930", "name": "삼성전자", "mdd": -25.3}]
+    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
+    assert "⚠️" in msg
+    assert "<b>-25.3%</b>" in msg
+    assert "삼성전자" in msg
+
+
+def test_format_mdd_summary_no_flag_above_threshold() -> None:
+    entries = [{"code": "035720", "name": "카카오", "mdd": -12.1}]
+    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
+    assert "⚠️" not in msg
+    assert "-12.1%" in msg
+
+
+def test_format_mdd_summary_flags_at_exact_threshold() -> None:
+    entries = [{"code": "005930", "name": "삼성전자", "mdd": -20.0}]
+    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
+    assert "⚠️" in msg
+
+
+def test_format_mdd_summary_custom_label() -> None:
+    msg = format_mdd_summary([], alert_threshold=-20.0, period=60, label="장 시작")
     assert "장 시작" in msg
     assert "장 마감" not in msg

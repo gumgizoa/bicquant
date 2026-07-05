@@ -14,3 +14,9 @@ adr:
   # >= overbought: 과열권, <= oversold: 바닥권
   overbought: 120.0
   oversold: 75.0
+
+mdd:
+  # Maximum drawdown over the last `period` trading days, for watchlist stocks
+  period: 60
+  # Flag ⚠️ when MDD is at or below this (more negative) percentage
+  alert_threshold: -20.0

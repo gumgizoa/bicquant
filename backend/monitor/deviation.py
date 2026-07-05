@@ -3,9 +3,11 @@
 Deviation ratio = (current price / 50-day moving average) x 100.
 ADR (advance-decline ratio) = 100 x (sum of advancing issues) /
 (sum of declining issues) over the last ``adr.period`` trading days, per market
-index. A single combined summary (이격도 + ADR) is sent at session start
-(장 시작) and session end (장 마감). Deviation entries alert individually when
-ratio >= deviation.threshold (default 130).
+index. MDD (maximum drawdown) over the last ``mdd.period`` trading days is
+reported per watchlist stock. A single combined summary (이격도 + ADR + MDD) is
+sent at session start (장 시작) and session end (장 마감). Deviation entries alert
+individually when ratio >= deviation.threshold (default 130); MDD entries are
+flagged when at or below ``mdd.alert_threshold``.
 """
 
 import asyncio
@@ -158,6 +160,25 @@ async def _evaluate(code: str, name: str, closes: list[float]) -> None:
         await notifier.send_telegram(alert)
 
 
+def _max_drawdown_pct(closes: list[float]) -> float:
+    """Maximum drawdown (%) over a chronological close series (non-positive).
+
+    Drawdown at each point is (price - running_peak) / running_peak; MDD is the
+    most negative such value. ``closes`` must be oldest-first. Returns 0.0 for an
+    empty series or one that never falls below its running peak.
+    """
+    peak = 0.0
+    mdd = 0.0
+    for price in closes:
+        if price > peak:
+            peak = price
+        if peak > 0:
+            dd = (price - peak) / peak * 100.0
+            if dd < mdd:
+                mdd = dd
+    return mdd
+
+
 async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
     """Calculate deviation ratios for all tracked items and send a summary."""
     log.info("Running deviation summary (%s).", label)
@@ -171,14 +192,20 @@ async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
             if ma50 > 0:
                 entries.append({"code": upcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
 
+    # Watchlist stocks: deviation ratio + MDD (over cfg.mdd.period). Fetch enough
+    # bars for both (MA50 needs >=51, MDD needs cfg.mdd.period).
+    mdd_period = cfg.mdd.period
+    mdd_entries = []
     for shcode in await watchlist_q.get_active_codes():
         name = await _fetch_stock_name(client, shcode)
-        closes = await _fetch_stock_closes(client, shcode)
+        closes = await _fetch_stock_closes(client, shcode, count=max(60, mdd_period))
         if len(closes) >= 51:
             current = closes[-1]
             ma50 = float(np.mean(closes[-51:-1]))
             if ma50 > 0:
                 entries.append({"code": shcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
+        if len(closes) >= 2:
+            mdd_entries.append({"code": shcode, "name": name, "mdd": _max_drawdown_pct(closes[-mdd_period:])})
 
     # ADR (advance-decline ratio) for the market indices — same message.
     adr_entries = []
@@ -187,7 +214,7 @@ async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
         if adr is not None:
             adr_entries.append({"code": upcode, "name": name, "adr": adr})
 
-    if not entries and not adr_entries:
+    if not entries and not adr_entries and not mdd_entries:
         log.warning("Summary (%s): no data available.", label)
         return
 
@@ -196,6 +223,8 @@ async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
         parts.append(notifier.format_deviation_summary(entries, cfg.deviation.threshold, label=label))
     if adr_entries:
         parts.append(notifier.format_adr_summary(adr_entries, cfg.adr.overbought, cfg.adr.oversold, label=label))
+    if mdd_entries:
+        parts.append(notifier.format_mdd_summary(mdd_entries, cfg.mdd.alert_threshold, mdd_period, label=label))
     await notifier.send_telegram("\n\n".join(parts))
 
 
