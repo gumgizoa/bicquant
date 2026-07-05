@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from monitor.deviation import (
-    _evaluate,
     _fetch_adr,
     _fetch_index_closes,
     _fetch_stock_closes,
@@ -21,13 +20,6 @@ from monitor.deviation import (
     monitor_deviation,
 )
 from monitor.notifier import format_adr_summary, format_deviation_summary, format_mdd_summary
-from shared.models import DeviationAlert
-
-
-def _closes(ratio: float, ma50: float = 100.0) -> list[float]:
-    """Build a closes list where MA50 == ma50 and current/MA50*100 == ratio."""
-    return [ma50] * 50 + [ma50 * ratio / 100]
-
 
 # ---------------------------------------------------------------------------
 # Live: LS API data fetching
@@ -104,56 +96,6 @@ async def test_fetch_adr_returns_none_when_no_declines() -> None:
 
 async def test_fetch_adr_returns_none_when_empty() -> None:
     assert await _fetch_adr(_adr_client([]), "001", period=20) is None
-
-
-# ---------------------------------------------------------------------------
-# Live: _evaluate end-to-end (LS not needed — synthetic closes; real DB + Telegram)
-# ---------------------------------------------------------------------------
-
-_TEST_CODE = "TST_DEV"
-
-
-@pytest.mark.slow
-async def test_evaluate_above_threshold_writes_alert(live_db, telegram) -> None:
-    before = await live_db.max_id(DeviationAlert)
-    try:
-        await _evaluate(_TEST_CODE, "테스트종목", _closes(131.0, ma50=50_000.0))
-
-        rows = await live_db.rows_after(DeviationAlert, before)
-        assert len(rows) == 1
-        row = rows[0]
-        assert row.target_code == _TEST_CODE
-        assert abs(float(row.deviation_ratio) - 131.0) < 0.01
-        assert abs(float(row.current_value) - 65_500.0) < 1
-    finally:
-        await live_db.delete_after(DeviationAlert, before)
-
-
-@pytest.mark.slow
-async def test_evaluate_below_threshold_writes_nothing(live_db) -> None:
-    before = await live_db.max_id(DeviationAlert)
-    try:
-        await _evaluate(_TEST_CODE, "테스트종목", _closes(120.0))
-
-        rows = await live_db.rows_after(DeviationAlert, before)
-        assert rows == []
-    finally:
-        await live_db.delete_after(DeviationAlert, before)
-
-
-# ---------------------------------------------------------------------------
-# _evaluate guard clauses — return early before any external call (offline)
-# ---------------------------------------------------------------------------
-
-
-async def test_evaluate_skips_when_data_insufficient() -> None:
-    # 50 points (<51) → returns before touching DB/Telegram.
-    await _evaluate("001", "코스피", [100.0] * 50)
-
-
-async def test_evaluate_skips_when_ma50_is_zero() -> None:
-    # MA50 == 0 → returns before touching DB/Telegram.
-    await _evaluate("001", "코스피", [0.0] * 50 + [130.0])
 
 
 # ---------------------------------------------------------------------------

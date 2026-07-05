@@ -15,7 +15,6 @@ import logging
 
 import numpy as np
 from shared.config import get_config
-from shared.queries import deviation as deviation_q
 from shared.queries import watchlist as watchlist_q
 
 from lsapi import AsyncLSClient as LSClient
@@ -138,28 +137,6 @@ async def _fetch_adr(client: LSClient, upcode: str, period: int) -> float | None
     raise last_exc  # type: ignore[misc]
 
 
-async def _evaluate(code: str, name: str, closes: list[float]) -> None:
-    """Compute deviation ratio and alert if over threshold."""
-    if len(closes) < 51:
-        log.warning(f"{name} ({code}): only {len(closes)} days of data, need 51")
-        return
-
-    # closes[-1] is today's latest price; MA50 uses the 50 days before it
-    current = closes[-1]
-    ma50 = float(np.mean(closes[-51:-1]))
-    if ma50 == 0:
-        return
-
-    ratio = current / ma50 * 100
-    log.debug(f"{name}: current={current:.2f}, MA50={ma50:.2f}, deviation={ratio:.1f}")
-
-    if ratio >= cfg.deviation.threshold:
-        log.info(f"DEVIATION ALERT: {name} ({code}) ratio={ratio:.1f}")
-        await deviation_q.save_alert(code, name, current, ma50, ratio)
-        alert = notifier.format_deviation_alert(code, name, current, ma50, ratio)
-        await notifier.send_telegram(alert)
-
-
 def _max_drawdown_pct(closes: list[float]) -> float:
     """Maximum drawdown (%) over a chronological close series (non-positive).
 
@@ -180,21 +157,33 @@ def _max_drawdown_pct(closes: list[float]) -> float:
 
 
 async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
-    """Calculate deviation ratios for all tracked items and send a summary."""
-    log.info("Running deviation summary (%s).", label)
-    entries = []
+    """Compute indicators and send two Telegram messages.
 
+    Message 1 (시장): index deviation ratio + ADR.
+    Message 2 (관심종목): watchlist deviation ratio + MDD.
+    """
+    log.info("Running deviation summary (%s).", label)
+
+    # ---- Market indices: deviation ratio + ADR ----
+    index_entries = []
     for upcode, name in _INDICES:
         closes = await _fetch_index_closes(client, upcode)
         if len(closes) >= 51:
             current = closes[-1]
             ma50 = float(np.mean(closes[-51:-1]))
             if ma50 > 0:
-                entries.append({"code": upcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
+                index_entries.append({"code": upcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
 
-    # Watchlist stocks: deviation ratio + MDD (over cfg.mdd.period). Fetch enough
-    # bars for both (MA50 needs >=51, MDD needs cfg.mdd.period).
+    adr_entries = []
+    for upcode, name in _INDICES:
+        adr = await _fetch_adr(client, upcode, cfg.adr.period)
+        if adr is not None:
+            adr_entries.append({"code": upcode, "name": name, "adr": adr})
+
+    # ---- Watchlist stocks: deviation ratio + MDD (over cfg.mdd.period) ----
+    # Fetch enough bars for both (MA50 needs >=51, MDD needs cfg.mdd.period).
     mdd_period = cfg.mdd.period
+    stock_entries = []
     mdd_entries = []
     for shcode in await watchlist_q.get_active_codes():
         name = await _fetch_stock_name(client, shcode)
@@ -203,29 +192,29 @@ async def _run_summary(client: LSClient, label: str = "장 마감") -> None:
             current = closes[-1]
             ma50 = float(np.mean(closes[-51:-1]))
             if ma50 > 0:
-                entries.append({"code": shcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
+                stock_entries.append({"code": shcode, "name": name, "current": current, "ma50": ma50, "ratio": current / ma50 * 100})
         if len(closes) >= 2:
             mdd_entries.append({"code": shcode, "name": name, "mdd": _max_drawdown_pct(closes[-mdd_period:])})
 
-    # ADR (advance-decline ratio) for the market indices — same message.
-    adr_entries = []
-    for upcode, name in _INDICES:
-        adr = await _fetch_adr(client, upcode, cfg.adr.period)
-        if adr is not None:
-            adr_entries.append({"code": upcode, "name": name, "adr": adr})
-
-    if not entries and not adr_entries and not mdd_entries:
-        log.warning("Summary (%s): no data available.", label)
-        return
-
-    parts = []
-    if entries:
-        parts.append(notifier.format_deviation_summary(entries, cfg.deviation.threshold, label=label))
+    # ---- Message 1: 시장 (index deviation + ADR) ----
+    market_parts = []
+    if index_entries:
+        market_parts.append(notifier.format_deviation_summary(index_entries, cfg.deviation.threshold, label=label))
     if adr_entries:
-        parts.append(notifier.format_adr_summary(adr_entries, cfg.adr.overbought, cfg.adr.oversold, label=label))
+        market_parts.append(notifier.format_adr_summary(adr_entries, cfg.adr.overbought, cfg.adr.oversold, label=label))
+    if market_parts:
+        await notifier.send_telegram("\n\n".join(market_parts))
+    else:
+        log.warning("Market summary (%s): no data available.", label)
+
+    # ---- Message 2: 관심종목 (watchlist deviation + MDD) ----
+    watchlist_parts = []
+    if stock_entries:
+        watchlist_parts.append(notifier.format_deviation_summary(stock_entries, cfg.deviation.threshold, label=label))
     if mdd_entries:
-        parts.append(notifier.format_mdd_summary(mdd_entries, cfg.mdd.alert_threshold, mdd_period, label=label))
-    await notifier.send_telegram("\n\n".join(parts))
+        watchlist_parts.append(notifier.format_mdd_summary(mdd_entries, cfg.mdd.alert_threshold, mdd_period, label=label))
+    if watchlist_parts:
+        await notifier.send_telegram("\n\n".join(watchlist_parts))
 
 
 async def monitor_deviation() -> None:

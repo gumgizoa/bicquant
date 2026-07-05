@@ -158,16 +158,6 @@ def format_dart_new_disclosure(d: dict) -> str:
     )
 
 
-def format_deviation_alert(code: str, name: str, current: float, ma50: float, ratio: float) -> str:
-    return (
-        f"📊 <b>이격도 알림</b>\n\n"
-        f"종목: {name} ({code})\n"
-        f"현재가: {current:,.2f}\n"
-        f"50일 MA: {ma50:,.2f}\n"
-        f"이격도: <b>{ratio:.1f}</b> (기준: {cfg.deviation.threshold:.0f})"
-    )
-
-
 def format_deviation_summary(entries: list[dict], threshold: float, label: str = "장 마감") -> str:
     """Format a deviation ratio summary for all tracked items.
 
