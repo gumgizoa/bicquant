@@ -54,6 +54,10 @@ def html_to_markdown_keep_tables(html: str) -> str:
 
 _BASE_URL = "https://dart.fss.or.kr"
 
+# 일자별 공시 목록의 회사명 링크는 고유번호를 실어 나른다:
+#   javascript:openCorpInfoNew('00406727', 'winCorpInfo', '/dsae001/selectPopup.ax');
+_CORP_CODE_RE = re.compile(r"openCorpInfoNew\('(\d{8})'")
+
 _session = None
 
 
@@ -141,6 +145,7 @@ def list_dart_disclosures_by_date(
         list[dict]: 공시 보고서 목록. 각 항목은 다음과 같은 키를 포함합니다:
             - rcept_dt (Timestamp): 접수일시 (예: Timestamp('2026-01-28 17:30:00'))
             - corp_cls (str): 법인구분 (예: '유', '코', '채', '넥' 등)
+            - corp_code (str): 공시대상 회사의 고유번호(8자리). 파싱 실패 시 빈 문자열.
             - corp_name (str): 공시대상 회사명
             - rcept_no (str): 접수번호(14자리)
             - report_nm (str): 보고서명
@@ -153,7 +158,7 @@ def list_dart_disclosures_by_date(
     date = pd.to_datetime(date) if date else datetime.today()
     date_str = date.strftime("%Y.%m.%d")
 
-    columns = ["rcept_dt", "corp_cls", "corp_name", "rcept_no", "report_nm", "flr_nm", "rm"]
+    columns = ["rcept_dt", "corp_cls", "corp_code", "corp_name", "rcept_no", "report_nm", "flr_nm", "rm"]
 
     df_list = []
     for page in range(start_page, end_page + 1):
@@ -173,13 +178,16 @@ def list_dart_disclosures_by_date(
             tds = tr.find_all("td")
             hhmm = tds[0].text.strip()
             corp_class = tds[1].span.span.text
-            name = tds[1].span.a.text.strip()
+            corp_link = tds[1].span.a
+            name = corp_link.text.strip()
+            corp_code_match = _CORP_CODE_RE.search(corp_link.get("href", ""))
+            corp_code = corp_code_match.group(1) if corp_code_match else ""
             rcept_no = tds[2].a["href"].split("=")[1]
             title = " ".join(tds[2].a.text.split())
             fr_name = tds[3].text
             remark = "".join([span.text for span in tds[5].find_all("span")])
             dt = date.strftime("%Y-%m-%d") + " " + hhmm
-            data_list.append([dt, corp_class, name, rcept_no, title, fr_name, remark])
+            data_list.append([dt, corp_class, corp_code, name, rcept_no, title, fr_name, remark])
 
         df = pd.DataFrame(data_list, columns=columns)
         df["rcept_dt"] = pd.to_datetime(df["rcept_dt"])

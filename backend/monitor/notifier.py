@@ -113,7 +113,7 @@ def format_dart_daily_count(date_str: str, total: int, by_cls: dict) -> str:
 
     Args:
         date_str: Date string in YYYYMMDD format.
-        total: Total listed-company disclosure count for the day.
+        total: Watchlisted-company disclosure count for the day.
         by_cls: Disclosure count per corp_cls (e.g. {'유': 8, '코': 7}).
 
     Returns:
@@ -122,10 +122,10 @@ def format_dart_daily_count(date_str: str, total: int, by_cls: dict) -> str:
     date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
     cls_label = {"유": "유가증권", "코": "코스닥"}
     lines = [
-        "📋 <b>오늘 공시 현황</b>",
+        "📋 <b>오늘 관심종목 공시</b>",
         "",
         f"날짜: {date_fmt}",
-        f"상장사 공시: {total}건",
+        f"관심종목 공시: {total}건",
     ]
     for cls in sorted(by_cls):
         label = cls_label.get(cls, cls)

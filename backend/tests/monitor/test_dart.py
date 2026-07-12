@@ -38,10 +38,12 @@ def _disc(
     corp_cls: str = "유",
     corp_name: str = "삼성전자",
     report_nm: str = "주요사항보고서(유상증자결정)",
+    corp_code: str = "00126380",
 ) -> dict:
     return {
         "rcept_no": rcept_no,
         "corp_cls": corp_cls,
+        "corp_code": corp_code,
         "corp_name": corp_name,
         "report_nm": report_nm,
         "flr_nm": corp_name,
@@ -101,7 +103,7 @@ def test_seconds_until_dart_open_after_close_skips_weekend() -> None:
 
 def test_format_dart_daily_count_contains_header() -> None:
     msg = format_dart_daily_count("20260602", 0, {})
-    assert "오늘 공시 현황" in msg
+    assert "관심종목 공시" in msg
 
 
 def test_format_dart_daily_count_shows_date_and_total() -> None:
@@ -150,6 +152,95 @@ def test_format_dart_new_disclosure_kosdaq_label() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Watchlist filtering — DB and DART fetch stubbed, filter logic exercised for real
+# ---------------------------------------------------------------------------
+
+_SAMSUNG = "00126380"
+_KAKAO = "00918444"
+
+
+def _patch_dart(disclosures: list[dict], corp_codes: set[str]):
+    """Stub the DART fetch and the watchlist->corp_code lookup, capture Telegram sends."""
+    return (
+        patch("monitor.dart._fetch_disclosures", AsyncMock(return_value=disclosures)),
+        patch("monitor.dart._watchlist_corp_codes", AsyncMock(return_value=corp_codes)),
+        patch("monitor.dart.notifier.send_telegram", new_callable=AsyncMock),
+    )
+
+
+async def test_check_new_disclosures_notifies_only_watchlisted() -> None:
+    watched = _disc("001", corp_code=_SAMSUNG, corp_name="삼성전자")
+    other = _disc("002", corp_code=_KAKAO, corp_name="카카오")
+    fetch, wl, send = _patch_dart([watched, other], {_SAMSUNG})
+
+    with fetch, wl, send as mock_send:
+        await _check_new_disclosures("20260602")
+
+    mock_send.assert_awaited_once()
+    assert "삼성전자" in mock_send.await_args.args[0]
+
+
+async def test_check_new_disclosures_marks_unwatched_as_seen() -> None:
+    # Not notifying is not the same as forgetting: an unwatched disclosure must
+    # still be recorded, so adding that stock later does not replay it as new.
+    fetch, wl, send = _patch_dart([_disc("002", corp_code=_KAKAO)], {_SAMSUNG})
+
+    with fetch, wl, send as mock_send:
+        await _check_new_disclosures("20260602")
+
+    mock_send.assert_not_awaited()
+    assert "002" in _seen_rcept_nos
+
+
+async def test_check_new_disclosures_sends_nothing_when_watchlist_empty() -> None:
+    fetch, wl, send = _patch_dart([_disc("001"), _disc("002", corp_code=_KAKAO)], set())
+
+    with fetch, wl, send as mock_send:
+        await _check_new_disclosures("20260602")
+
+    mock_send.assert_not_awaited()
+
+
+async def test_check_new_disclosures_ignores_unknown_corp_code() -> None:
+    # corp_code parsing can fail (empty string); it must never match the watchlist.
+    fetch, wl, send = _patch_dart([_disc("001", corp_code="")], {_SAMSUNG})
+
+    with fetch, wl, send as mock_send:
+        await _check_new_disclosures("20260602")
+
+    mock_send.assert_not_awaited()
+
+
+async def test_morning_summary_counts_only_watchlisted() -> None:
+    disclosures = [
+        _disc("001", corp_code=_SAMSUNG, corp_cls="유"),
+        _disc("002", corp_code=_KAKAO, corp_cls="코"),
+        _disc("003", corp_code=_KAKAO, corp_cls="코"),
+    ]
+    fetch, wl, send = _patch_dart(disclosures, {_KAKAO})
+
+    with fetch, wl, send as mock_send:
+        await _send_morning_summary("20260602")
+
+    msg = mock_send.await_args.args[0]
+    assert "2건" in msg
+    assert "코스닥: 2건" in msg
+    assert "유가증권" not in msg
+    # The seen-set still covers every fetched disclosure, watchlisted or not.
+    assert _seen_rcept_nos == {"001", "002", "003"}
+
+
+async def test_morning_summary_silent_when_watchlist_empty() -> None:
+    fetch, wl, send = _patch_dart([_disc("001")], set())
+
+    with fetch, wl, send as mock_send:
+        await _send_morning_summary("20260602")
+
+    mock_send.assert_not_awaited()
+    assert _seen_rcept_nos == {"001"}  # still seen, so a later add does not replay it
+
+
+# ---------------------------------------------------------------------------
 # Live: _fetch_disclosures — real DART API
 # ---------------------------------------------------------------------------
 
@@ -173,8 +264,22 @@ async def test_fetch_disclosures_live_raw_records_have_expected_keys(dart, recen
     records = await asyncio.to_thread(list_dart_disclosures_by_date, recent_trading_day, 1, 1)
     assert isinstance(records, list)
     if records:  # a trading day normally has disclosures; tolerate a quiet day
-        expected = {"rcept_dt", "corp_cls", "corp_name", "rcept_no", "report_nm", "flr_nm", "rm"}
+        expected = {"rcept_dt", "corp_cls", "corp_code", "corp_name", "rcept_no", "report_nm", "flr_nm", "rm"}
         assert expected.issubset(records[0].keys())
+        # corp_code is the watchlist join key: it must be a real 8-digit code, not a blank.
+        assert all(len(r["corp_code"]) == 8 and r["corp_code"].isdigit() for r in records)
+
+
+@pytest.mark.slow
+async def test_watchlist_corp_codes_live_maps_active_tickers(live_db) -> None:
+    from monitor.dart import _watchlist_corp_codes
+    from shared.queries import watchlist as watchlist_q
+
+    codes = await watchlist_q.get_active_codes()
+    corp_codes = await _watchlist_corp_codes()
+
+    assert len(corp_codes) <= len(codes)  # unmappable tickers are dropped, never invented
+    assert all(len(c) == 8 and c.isdigit() for c in corp_codes)
 
 
 # ---------------------------------------------------------------------------
@@ -183,16 +288,17 @@ async def test_fetch_disclosures_live_raw_records_have_expected_keys(dart, recen
 
 
 @pytest.mark.slow
-async def test_send_morning_summary_live(dart, telegram, recent_trading_day) -> None:
+async def test_send_morning_summary_live(dart, telegram, live_db, recent_trading_day) -> None:
     await _send_morning_summary(recent_trading_day)  # real DART fetch + real Telegram
 
-    # The seen-set is initialised to exactly the listed/monitored disclosures.
+    # The seen-set is initialised to every listed/monitored disclosure, watchlisted
+    # or not — the watchlist only decides what gets sent.
     expected = {d["rcept_no"] for d in await _fetch_disclosures(recent_trading_day, 50)}
     assert _seen_rcept_nos == expected
 
 
 @pytest.mark.slow
-async def test_check_new_disclosures_live_dedups(dart, recent_trading_day) -> None:
+async def test_check_new_disclosures_live_dedups(dart, live_db, recent_trading_day) -> None:
     # Pre-seed the seen-set with everything currently published (live fetch), so
     # the poll finds nothing new: the seen-set is unchanged and no message is
     # emitted. No Telegram fixture needed — dedup is observed via the seen-set.

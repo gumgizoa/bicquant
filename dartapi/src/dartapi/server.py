@@ -1,14 +1,12 @@
 # -*- coding:utf-8 -*-
 """MCP server for DART OpenAPI tools."""
 
-import difflib
 import inspect
 import json
 import logging
 import os
 from collections.abc import Callable
 from functools import wraps
-from pathlib import Path
 from typing import Any, Optional, Union
 
 import httpx
@@ -17,7 +15,7 @@ from mcp.server.fastmcp import FastMCP
 
 from dartapi.exceptions import APIError
 
-from . import dart_catalog, dart_event, dart_finstate, dart_list, dart_regstate, dart_report, dart_share, dart_utils
+from . import corp_codes, dart_catalog, dart_event, dart_finstate, dart_list, dart_regstate, dart_report, dart_share, dart_utils
 
 logger = logging.getLogger(__name__)
 
@@ -78,46 +76,13 @@ class DartServerState:
 
     def load_corp_codes(self) -> pd.DataFrame:
         """Load and cache listed DART company codes for this server instance."""
-        if self.corp_codes is not None:
-            return self.corp_codes
-
-        corp_codes_path = Path(__file__).parent / "db" / "corp_codes.json"
-        if corp_codes_path.exists():
-            with corp_codes_path.open("r", encoding="utf-8") as f:
-                self.corp_codes = pd.DataFrame(json.load(f))
-            return self.corp_codes
-
-        logger.info("corp_codes.json not found at %s, loading from DART API. It may take a few minutes.", corp_codes_path)
-        payload = dart_list.corpCode(self.get_client())
-        rows = [row for row in payload.get("list", []) if row.get("stock_code", "").strip()]
-        if not rows:
-            raise ValueError("Failed to load corp_codes DB.")
-        self.corp_codes = pd.DataFrame(rows)
+        if self.corp_codes is None:
+            self.corp_codes = corp_codes.load_corp_codes(self.get_client())
         return self.corp_codes
 
     def find_dart_corp_code(self, company_name: str) -> list[dict[str, Any]]:
         """Find listed company DART corp_code candidates by company name."""
-        if not company_name:
-            raise ValueError(f"company_name should not be empty. Given: {company_name}")
-
-        df = self.load_corp_codes()
-
-        listed = df[df["stock_code"].str.strip() != ""]
-        hits = listed[listed["corp_name"].str.contains(company_name, case=False, na=False)].copy()
-        if hits.empty:
-            suggestion = (
-                f"입력한 회사명 '{company_name}'으로 조회된 결과가 없습니다. "
-                "상장회사의 경우, 다음과 같이 시도를 권장합니다:\n"
-                "- 회사명을 영문 이니셜/대문자로 입력해보세요 (예: '네이버' → 'NAVER', '포스코' → 'POSCO')\n"
-                "- 회사명에 '주식회사', 공백, 특수문자를 제거해보세요\n"
-                "- 공식 상장명(증권사 검색 명칭)과 일치하는지 확인해보세요\n"
-                "그래도 조회가 안될 경우 DART 전자공시 상장명칭을 참고해주세요."
-            )
-            return [{"message": suggestion}]
-
-        hits["similarity"] = hits["corp_name"].apply(lambda name: difflib.SequenceMatcher(None, str(name), company_name).ratio())
-        hits = hits.sort_values("similarity", ascending=False).iloc[:20, :].reset_index(drop=True)
-        return hits.drop(columns=["similarity"]).to_dict("records")
+        return corp_codes.find_corp_codes_by_name(company_name, self.get_client())
 
 
 def _json_resource(payload: Any) -> str:

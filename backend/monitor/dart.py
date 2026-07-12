@@ -7,6 +7,11 @@ Two tasks per trading day:
    and sends individual notifications for each new entry.
 
 Listed companies are defined as corp_cls in {'유' (KOSPI), '코' (KOSDAQ)}.
+
+Both tasks report only on watchlisted companies: the disclosure's corp_code is
+matched against the corp_codes of the active watchlist tickers. An empty watchlist
+means nothing is sent. Matching is on corp_code rather than company name because
+DART company names are neither unique (SK, 국민은행, ...) nor stable across renames.
 """
 
 import asyncio
@@ -14,6 +19,9 @@ import datetime
 import logging
 import zoneinfo
 
+from shared.queries import watchlist as watchlist_q
+
+from dartapi.corp_codes import map_stock_codes_to_corp_codes
 from dartapi.dart_utils import list_dart_disclosures_by_date
 from monitor import notifier
 
@@ -81,9 +89,34 @@ def _seconds_until_dart_open() -> float:
     return (candidate - now).total_seconds()
 
 
-# Tracks rcept_no values already notified; cleared after DART disclosure hours.
+# Tracks rcept_no values already seen today; cleared after DART disclosure hours.
+# Every fetched disclosure lands here, watchlisted or not, so that adding a stock
+# mid-session does not replay that stock's earlier disclosures as "new".
 _seen_rcept_nos: set[str] = set()
 _consecutive_poll_errors: int = 0
+
+# Watchlist tickers with no corp_code in the DART snapshot; warned about once each.
+_unmapped_codes_warned: set[str] = set()
+
+
+async def _watchlist_corp_codes() -> set[str]:
+    """Return DART corp_codes for the active watchlist tickers.
+
+    Tickers absent from the corp_code snapshot (typically a recent IPO) cannot be
+    matched against disclosures, so they are dropped with a one-time warning.
+    """
+    codes = await watchlist_q.get_active_codes()
+    if not codes:
+        return set()
+
+    mapping = await asyncio.to_thread(map_stock_codes_to_corp_codes, codes)
+
+    unmapped = set(codes) - set(mapping) - _unmapped_codes_warned
+    if unmapped:
+        _unmapped_codes_warned.update(unmapped)
+        log.warning("Watchlist codes have no DART corp_code, disclosures will not be notified: %s", sorted(unmapped))
+
+    return set(mapping.values())
 
 
 async def _fetch_disclosures(date_str: str, end_page: int) -> list[dict]:
@@ -95,16 +128,21 @@ async def _fetch_disclosures(date_str: str, end_page: int) -> list[dict]:
 
     Returns:
         Filtered list of disclosure dicts: listed companies whose report name
-        matches one of the monitored subjects (see _SUBJECT_KEYWORDS).
+        matches one of the monitored subjects (see _SUBJECT_KEYWORDS). Not yet
+        restricted to the watchlist — see _watchlist_corp_codes.
     """
     all_disclosures = await asyncio.to_thread(list_dart_disclosures_by_date, date_str, 1, end_page)
     return [d for d in all_disclosures if d.get("corp_cls") in _LISTED_CLS and _matches_subject(d.get("report_nm", ""))]
 
 
 async def _send_morning_summary(date_str: str) -> None:
-    """Fetch all today's disclosures, populate seen set, and send count to Telegram."""
+    """Populate the seen set from today's disclosures and report the watchlisted count.
+
+    Nothing is sent when the watchlist is empty.
+    """
     try:
         disclosures = await _fetch_disclosures(date_str, _MORNING_END_PAGE)
+        corp_codes = await _watchlist_corp_codes()
     except Exception as e:
         log.error("DART morning summary fetch error: %s", e)
         await notifier.notify_service_error("DART morning summary fetch", e)
@@ -113,20 +151,30 @@ async def _send_morning_summary(date_str: str) -> None:
     for d in disclosures:
         _seen_rcept_nos.add(d["rcept_no"])
 
+    if not corp_codes:
+        log.info("DART morning summary skipped: watchlist is empty.")
+        return
+
+    watched = [d for d in disclosures if d.get("corp_code") in corp_codes]
+
     by_cls: dict[str, int] = {}
-    for d in disclosures:
+    for d in watched:
         cls = d.get("corp_cls", "기타")
         by_cls[cls] = by_cls.get(cls, 0) + 1
 
-    msg = notifier.format_dart_daily_count(date_str, len(disclosures), by_cls)
+    msg = notifier.format_dart_daily_count(date_str, len(watched), by_cls)
     await notifier.send_telegram(msg)
 
 
 async def _check_new_disclosures(date_str: str) -> None:
-    """Fetch recent disclosures and send a notification for each unseen one."""
+    """Fetch recent disclosures and notify each unseen one belonging to the watchlist.
+
+    Unseen disclosures outside the watchlist are still marked as seen, just not sent.
+    """
     global _consecutive_poll_errors
     try:
         disclosures = await _fetch_disclosures(date_str, _POLL_END_PAGE)
+        corp_codes = await _watchlist_corp_codes()
     except Exception as e:
         _consecutive_poll_errors += 1
         log.error("DART poll fetch error (#%d): %s", _consecutive_poll_errors, e)
@@ -137,8 +185,10 @@ async def _check_new_disclosures(date_str: str) -> None:
     _consecutive_poll_errors = 0
     for d in disclosures:
         rcept_no = d["rcept_no"]
-        if rcept_no not in _seen_rcept_nos:
-            _seen_rcept_nos.add(rcept_no)
+        if rcept_no in _seen_rcept_nos:
+            continue
+        _seen_rcept_nos.add(rcept_no)
+        if d.get("corp_code") in corp_codes:
             msg = notifier.format_dart_new_disclosure(d)
             await notifier.send_telegram(msg)
 
