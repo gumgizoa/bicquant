@@ -9,7 +9,7 @@ dependencies = [
     "requests",
     "python-dotenv",
     "omegaconf>=2.3",
-    "python-telegram-bot>=20.0",
+    "python-telegram-bot[job-queue]>=20.0",
     "asyncpg",
     "sqlalchemy[asyncio]>=2.0",
     "alembic>=1.13",
@@ -28,6 +28,7 @@ dependencies = [
     "paramiko",
     "lsapi",
     "dartapi",
+    "kofiaapi",
 ]
 
 [dependency-groups]
@@ -41,3 +42,4 @@ dev = [
 [tool.uv.sources]
 lsapi = { workspace = true }
 dartapi = { workspace = true }
+kofiaapi = { workspace = true }

@@ -1,1 +1,24 @@
 log_level: INFO
+
+daily_report:
+  # 일일 리포트 발송 시각 (KST, 월~금). 시장 요약과 관심종목 리포트가 각각 별도 메시지로 나간다.
+  # 장 시작: 시장 요약(지수 이격도 + ADR) / 관심종목(이격도 + MDD)
+  # 장 마감: 시장 요약 / 관심종목 + 신용잔고·공매도·대차 (일별 결제 기준 데이터라 장 마감에만)
+  open_time: "09:00"
+  close_time: "15:30"
+
+deviation:
+  # 이격도 = 현재가 / MA50 * 100. 이 값 이상이면 강조 (지수·관심종목 공통)
+  threshold: 130.0
+
+adr:
+  # ADR = 100 * sum(상승 종목수) / sum(하락 종목수), 최근 period 거래일 기준
+  period: 20
+  # >= overbought: 과열권, <= oversold: 바닥권
+  overbought: 120.0
+  oversold: 75.0
+
+mdd:
+  # 최근 period 거래일 기준 최대낙폭. alert_threshold 이하면 강조
+  period: 60
+  alert_threshold: -20.0

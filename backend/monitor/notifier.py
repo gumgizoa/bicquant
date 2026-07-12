@@ -113,7 +113,7 @@ def format_dart_daily_count(date_str: str, total: int, by_cls: dict) -> str:
 
     Args:
         date_str: Date string in YYYYMMDD format.
-        total: Total listed-company disclosure count for the day.
+        total: Watchlisted-company disclosure count for the day.
         by_cls: Disclosure count per corp_cls (e.g. {'유': 8, '코': 7}).
 
     Returns:
@@ -122,10 +122,10 @@ def format_dart_daily_count(date_str: str, total: int, by_cls: dict) -> str:
     date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
     cls_label = {"유": "유가증권", "코": "코스닥"}
     lines = [
-        "📋 <b>오늘 공시 현황</b>",
+        "📋 <b>오늘 관심종목 공시</b>",
         "",
         f"날짜: {date_fmt}",
-        f"상장사 공시: {total}건",
+        f"관심종목 공시: {total}건",
     ]
     for cls in sorted(by_cls):
         label = cls_label.get(cls, cls)
@@ -156,70 +156,3 @@ def format_dart_new_disclosure(d: dict) -> str:
             f"제출: {d.get('flr_nm', '')} | {time_str}",
         ]
     )
-
-
-def format_deviation_summary(entries: list[dict], threshold: float, label: str = "장 마감") -> str:
-    """Format a deviation ratio summary for all tracked items.
-
-    Args:
-        entries: List of dicts with keys: code, name, current, ma50, ratio.
-        threshold: Alert threshold; entries at or above this are highlighted.
-        label: Context label shown in the header (e.g. '장 마감', '장 시작').
-
-    Returns:
-        HTML-formatted Telegram message.
-    """
-    lines = [f"📊 <b>이격도 일일 요약 ({label})</b>", ""]
-    for e in entries:
-        ratio = e["ratio"]
-        if ratio >= threshold:
-            lines.append(f"⚠️ {e['name']} ({e['code']}): <b>{ratio:.1f}</b>")
-        else:
-            lines.append(f"• {e['name']} ({e['code']}): {ratio:.1f}")
-    return "\n".join(lines)
-
-
-def format_adr_summary(entries: list[dict], overbought: float, oversold: float, label: str = "장 마감") -> str:
-    """Format an ADR (advance-decline ratio) summary for the market indices.
-
-    Args:
-        entries: List of dicts with keys: code, name, adr.
-        overbought: ADR at or above this is flagged 과열 (overbought).
-        oversold: ADR at or below this is flagged 바닥 (oversold).
-        label: Context label shown in the header (e.g. '장 마감', '장 시작').
-
-    Returns:
-        HTML-formatted Telegram message.
-    """
-    lines = [f"📈 <b>ADR 일일 요약 ({label})</b>", ""]
-    for e in entries:
-        adr = e["adr"]
-        if adr >= overbought:
-            lines.append(f"⚠️ {e['name']} ({e['code']}): <b>{adr:.1f}</b> (과열)")
-        elif adr <= oversold:
-            lines.append(f"🔻 {e['name']} ({e['code']}): <b>{adr:.1f}</b> (바닥)")
-        else:
-            lines.append(f"• {e['name']} ({e['code']}): {adr:.1f}")
-    return "\n".join(lines)
-
-
-def format_mdd_summary(entries: list[dict], alert_threshold: float, period: int, label: str = "장 마감") -> str:
-    """Format a maximum-drawdown summary for watchlist stocks.
-
-    Args:
-        entries: List of dicts with keys: code, name, mdd (non-positive %).
-        alert_threshold: Flag ⚠️ when mdd is at or below this (more negative) %.
-        period: Number of trading days the MDD is measured over (header only).
-        label: Context label shown in the header (e.g. '장 마감', '장 시작').
-
-    Returns:
-        HTML-formatted Telegram message.
-    """
-    lines = [f"📉 <b>MDD 일일 요약 ({label}, 최근 {period} 거래일)</b>", ""]
-    for e in entries:
-        mdd = e["mdd"]
-        if mdd <= alert_threshold:
-            lines.append(f"⚠️ {e['name']} ({e['code']}): <b>{mdd:.1f}%</b>")
-        else:
-            lines.append(f"• {e['name']} ({e['code']}): {mdd:.1f}%")
-    return "\n".join(lines)
