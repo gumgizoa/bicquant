@@ -1,13 +1,18 @@
-"""시장 요약 리포트 메시지 포맷 (지수 이격도 + ADR) — bot 전용 feature.
+"""시장 요약 리포트 메시지 포맷 (지수 이격도 + ADR + 시장 신용공여 잔고) — bot 전용 feature.
 
-순수 함수만 담는다. LS 데이터 페치와 텔레그램 발송은 ``bot.main``에 있다.
+순수 함수만 담는다. LS/KOFIA 데이터 페치와 텔레그램 발송은 ``bot.main``에 있다.
 관심종목 리포트는 ``bot/features/watchlist_report.py``의 별도 메시지로 나간다.
 
 ``label``이 있으면 헤더에 태그로 붙는다 (예: '장 마감'). 수동 조회(/market)처럼
 맥락이 필요 없으면 생략한다.
+
+신용공여 잔고(KOFIA)는 결제 기준이라 1영업일 정도 지연되고 장중에 변하지 않는다.
+그래서 장 마감에만 붙이고, 헤더에 데이터 기준일자를 명시한다.
 """
 
 from __future__ import annotations
+
+from kofiaapi import CreditBalance
 
 
 def adr_from_rows(rows: list[dict], period: int) -> float | None:
@@ -81,6 +86,43 @@ def format_adr_summary(entries: list[dict], overbought: float, oversold: float, 
     return "\n".join(lines)
 
 
+def _fmt_won(amount: float) -> str:
+    """원 단위 금액을 조/억으로 축약. 36_633_640_504_452 → '36.63조'."""
+    if abs(amount) >= 1e12:
+        return f"{amount / 1e12:,.2f}조"
+    if abs(amount) >= 1e8:
+        return f"{amount / 1e8:,.0f}억"
+    return f"{amount:,.0f}원"
+
+
+def _fmt_delta(current: int, previous: int | None) -> str:
+    """전일 대비 증감을 '(▲ 5,183억, +2.1%)' 형태로. 전일 데이터가 없으면 빈 문자열."""
+    if previous is None:
+        return ""
+    diff = current - previous
+    arrow = "▲" if diff > 0 else "▼" if diff < 0 else "━"
+    pct = f", {diff / previous * 100:+.2f}%" if previous else ""
+    return f" ({arrow} {_fmt_won(abs(diff))}{pct})"
+
+
+def format_credit_balance(latest: CreditBalance, previous: CreditBalance | None = None) -> str:
+    """시장 신용공여 잔고 (신용거래융자 + 신용거래대주) 요약.
+
+    금액은 원 단위 값(``unit=1``)을 받아 조/억으로 축약한다. ``previous``가 있으면
+    전일 대비 증감을 함께 보여준다. 헤더의 일자는 데이터 기준일 (요청일이 아니다).
+    """
+    return "\n".join(
+        [
+            f"💳 <b>시장 신용공여 잔고 ({latest.date:%Y-%m-%d} 기준)</b>",
+            "",
+            f"융자 {_fmt_won(latest.margin_loan)}{_fmt_delta(latest.margin_loan, previous.margin_loan if previous else None)}",
+            f"    코스피 {_fmt_won(latest.margin_loan_kospi)} · 코스닥 {_fmt_won(latest.margin_loan_kosdaq)}",
+            f"대주 {_fmt_won(latest.stock_loan)}{_fmt_delta(latest.stock_loan, previous.stock_loan if previous else None)}",
+            f"    코스피 {_fmt_won(latest.stock_loan_kospi)} · 코스닥 {_fmt_won(latest.stock_loan_kosdaq)}",
+        ]
+    )
+
+
 def format_market_report(
     index_entries: list[dict],
     adr_entries: list[dict],
@@ -88,15 +130,19 @@ def format_market_report(
     dev_threshold: float,
     adr_overbought: float,
     adr_oversold: float,
+    credit: tuple[CreditBalance, CreditBalance | None] | None = None,
     label: str | None = None,
 ) -> str | None:
-    """시장 요약(이격도 + ADR)을 하나의 텔레그램 메시지로 렌더링.
+    """시장 요약(이격도 + ADR + 신용공여 잔고)을 하나의 텔레그램 메시지로 렌더링.
 
-    양쪽 다 데이터가 없으면 ``None``을 반환한다 (보낼 게 없다).
+    ``credit``은 (최신, 전일) 잔고 쌍. 장 시작 리포트처럼 신용잔고를 빼려면 ``None``.
+    셋 다 데이터가 없으면 ``None``을 반환한다 (보낼 게 없다).
     """
     parts = []
     if index_entries:
         parts.append(format_deviation_summary(index_entries, dev_threshold, label=label))
     if adr_entries:
         parts.append(format_adr_summary(adr_entries, adr_overbought, adr_oversold, label=label))
+    if credit is not None:
+        parts.append(format_credit_balance(*credit))
     return "\n\n".join(parts) if parts else None
