@@ -330,8 +330,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "BicQuant 봇이 실행 중이에요.\n\n"
         "/stock {티커}   — 주가 조회\n"
-        "/market         — 시장 요약 (이격도 + ADR + 신용공여 잔고)\n"
-        "/macro          — 해외 거시 지표 (미 국채 10년물 + 미국 M2)\n"
+        "/market         — 시장 요약 (이격도 + ADR + 신용공여 잔고 + 거시 지표)\n"
         "/mdd {티커} {기간} — 최대낙폭(MDD) 조회\n"
         "/report         — 관심종목 리포트 즉시 조회\n"
         "/watch {코드}   — 관심종목 추가\n"
@@ -536,14 +535,17 @@ async def _build_market_entries() -> tuple[list[dict], list[dict]]:
 
 
 async def _send_market_report(bot, label: str | None, *, include_credit: bool) -> None:
-    """시장 요약을 그룹방에 발송. 보낼 데이터가 없으면 로그만 남기고 넘어간다.
+    """시장 요약(+ 해외 거시 지표)을 한 메시지로 그룹방에 발송.
+
+    이격도/ADR/신용공여 잔고/거시 지표는 각각 자기 헤더를 가진 블록으로, 하나의 메시지에
+    이어 붙는다. 어느 한 블록의 데이터가 없으면 그 블록만 빠지고, 전부 없으면 발송하지 않는다.
 
     신용공여 잔고는 장중 불변 + 1영업일 지연이라 장 시작에는 빼고 장 마감에만 붙인다
-    (``include_credit``). 신용잔고 조회가 실패해도 이격도/ADR은 나간다.
+    (``include_credit``).
     """
     index_entries, adr_entries = await _build_market_entries()
     credit = await _fetch_market_credit() if include_credit else None
-    msg = format_market_report(
+    market_msg = format_market_report(
         index_entries,
         adr_entries,
         dev_threshold=float(_cfg.deviation.threshold),
@@ -552,14 +554,17 @@ async def _send_market_report(bot, label: str | None, *, include_credit: bool) -
         credit=credit,
         label=label,
     )
-    if msg is None:
+    macro_msg = await _build_macro_block(label)
+
+    blocks = [b for b in (market_msg, macro_msg) if b]
+    if not blocks:
         logging.warning(f"market report ({label or '수동 조회'}): no data available")
         return
-    await bot.send_message(chat_id=_cfg.telegram.chat_group_id, text=msg, parse_mode="HTML")
+    await bot.send_message(chat_id=_cfg.telegram.chat_group_id, text="\n\n".join(blocks), parse_mode="HTML")
 
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """On-demand 시장 요약 (이격도 + ADR + 신용공여 잔고), no label tag."""
+    """On-demand 시장 요약 (이격도 + ADR + 신용공여 잔고 + 거시 지표), no label tag."""
     if not _allowed(update):
         return
     try:
@@ -569,7 +574,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"시장 요약 생성에 실패했어요: {e}")
 
 
-# ── 해외 거시 지표 리포트 (미 국채 10년물 + 미국 M2) ───────────────────────────
+# ── 해외 거시 지표 (미 국채 10년물 + 미국 M2) — 시장 요약 메시지의 한 블록 ──────
 
 
 def _fred_point(series_id: str, *, monthly: bool) -> MacroPoint | None:
@@ -603,35 +608,23 @@ async def _fetch_macro_point(series_id: str, *, monthly: bool) -> MacroPoint | N
         return None
 
 
-async def _send_macro_report(bot, label: str | None) -> None:
-    """해외 거시 지표를 그룹방에 발송. 보낼 데이터가 없으면 로그만 남기고 넘어간다.
+async def _build_macro_block(label: str | None) -> str | None:
+    """시장 요약 메시지에 붙일 거시 지표 블록. 데이터가 없으면 ``None`` (블록만 빠진다).
 
     M2는 월별이라 장 시작/마감 사이에 값이 변하지 않지만, 기준월과 MoM/YoY를 함께 보여주므로
     두 리포트에 모두 싣는다 (신용공여 잔고와 달리 ``include_credit`` 같은 분기가 없다).
     """
     treasury = await _fetch_macro_point(_cfg.macro.treasury_series, monthly=False)
     m2_us = await _fetch_macro_point(_cfg.macro.m2_us_series, monthly=True)
-    msg = format_macro_report(
+    block = format_macro_report(
         treasury,
         m2_us,
         treasury_move_alert=float(_cfg.macro.treasury_move_alert),
         label=label,
     )
-    if msg is None:
-        logging.warning(f"macro report ({label or '수동 조회'}): no data available")
-        return
-    await bot.send_message(chat_id=_cfg.telegram.chat_group_id, text=msg, parse_mode="HTML")
-
-
-async def macro(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """On-demand 해외 거시 지표 (미 국채 10년물 + 미국 M2), no label tag."""
-    if not _allowed(update):
-        return
-    try:
-        await _send_macro_report(context.bot, None)
-    except Exception as e:
-        logging.error(f"[macro] failed: {e}")
-        await update.message.reply_text(f"거시 지표 조회에 실패했어요: {e}")
+    if block is None:
+        logging.warning(f"macro block ({label or '수동 조회'}): no data available")
+    return block
 
 
 # ── 관심종목 일일 리포트 ────────────────────────────────────────────────────────
@@ -693,17 +686,17 @@ async def _send_watchlist_report(bot, label: str | None, *, include_credit: bool
 
 
 async def _job_market_open(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """장 시작 — 시장 요약 / 해외 거시 지표 / 관심종목 리포트를 각각 별도 메시지로 발송.
+    """장 시작 — 시장 요약과 관심종목 리포트를 각각 별도 메시지로 발송.
 
     신용 관련 지표는 모두 빠진다: 시장 신용공여 잔고(KOFIA)도, 관심종목의 신용/공매도/대차도
     일별 결제 기준이라 장중에 변하지 않는다. 장 마감 리포트에만 붙인다.
-    하나가 실패해도 나머지는 나가야 하므로 개별적으로 잡아 로그를 남긴다.
+    한쪽이 실패해도 다른 쪽은 나가야 하므로 개별적으로 잡아 로그를 남긴다.
     """
     await _send_daily_reports(context.bot, "장 시작", include_credit=False)
 
 
 async def _job_market_close(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """장 마감 — 시장 요약(+ 시장 신용공여 잔고) / 해외 거시 지표 / 관심종목(+ 신용/공매도/대차)."""
+    """장 마감 — 시장 요약(+ 시장 신용공여 잔고) + 관심종목 리포트(+ 신용/공매도/대차)."""
     await _send_daily_reports(context.bot, "장 마감", include_credit=True)
 
 
@@ -712,11 +705,6 @@ async def _send_daily_reports(bot, label: str, *, include_credit: bool) -> None:
         await _send_market_report(bot, label, include_credit=include_credit)
     except Exception as e:
         logging.error(f"[{label}] market report failed: {e}")
-
-    try:
-        await _send_macro_report(bot, label)
-    except Exception as e:
-        logging.error(f"[{label}] macro report failed: {e}")
 
     try:
         await _send_watchlist_report(bot, label, include_credit=include_credit)
@@ -769,7 +757,6 @@ def main() -> None:
     app.add_handler(CommandHandler("stock", stock))
     app.add_handler(CommandHandler("mdd", mdd))
     app.add_handler(CommandHandler("market", market))
-    app.add_handler(CommandHandler("macro", macro))
     app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("watch", watch))
     app.add_handler(CommandHandler("unwatch", unwatch))

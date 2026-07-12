@@ -1,4 +1,7 @@
-"""Tests for the 해외 거시 지표 리포트 (미 국채 10년물 + 미국 M2) — bot.
+"""Tests for the 해외 거시 지표 블록 (미 국채 10년물 + 미국 M2) — bot.
+
+이 블록은 시장 요약 메시지의 마지막 블록으로 붙는다 (별도 메시지가 아니다). 발송 경로
+자체는 ``test_market_report.py``의 ``test_send_market_report_live``가 커버한다.
 
 Pure formatting runs offline. Live (``slow``) tests hit the real FRED API — 키가 없으면
 ``fred`` 픽스처가 스킵한다.
@@ -155,11 +158,12 @@ async def test_fetch_macro_point_returns_none_on_bad_series(fred) -> None:
 
 
 @pytest.mark.slow
-async def test_send_macro_report_live(fred, telegram) -> None:
-    """End-to-end: 실제 FRED 데이터로 거시 지표 리포트를 만들어 dev 챗으로 발송."""
+async def test_build_macro_block_live(fred) -> None:
+    """실제 FRED 데이터로 시장 요약에 붙을 블록이 만들어진다."""
     from bot import main as bot_main
-    from telegram import Bot
 
-    bot = Bot(token=bot_main._cfg.telegram.bot_token)
-    async with bot:
-        await bot_main._send_macro_report(bot, label="테스트 거시")
+    block = await bot_main._build_macro_block("장 마감")
+    assert block is not None
+    assert "해외 거시 지표 (장 마감)" in block
+    assert "미 국채 10년물" in block
+    assert "미국 M2" in block
