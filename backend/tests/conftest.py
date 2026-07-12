@@ -3,6 +3,7 @@
 These tests hit the real services in the **dev** environment:
   - LS Open API  (LS_OPENAPI_APP_KEY / LS_OPENAPI_APP_SECRET)
   - DART API     (DART_API_KEY)
+  - FRED API     (FRED_API_KEY)
   - Postgres     (DATABASE_URL — the dev docker-compose database)
   - Telegram     (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_GROUP_ID — dev chat)
 
@@ -37,6 +38,7 @@ _LS_KEY = os.getenv("LS_OPENAPI_APP_KEY", "")
 _LS_SECRET = os.getenv("LS_OPENAPI_APP_SECRET", "")
 _HAVE_LS = bool(_LS_KEY and _LS_SECRET)
 _HAVE_DART = bool(os.getenv("DART_API_KEY"))
+_HAVE_FRED = bool(os.getenv("FRED_API_KEY"))
 _HAVE_DB = bool(os.getenv("DATABASE_URL"))
 _HAVE_TG = bool(os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_GROUP_ID"))
 
@@ -65,6 +67,13 @@ def dart():
     """Gate a test on DART_API_KEY being present."""
     if not _HAVE_DART:
         pytest.skip("DART_API_KEY not set")
+
+
+@pytest.fixture
+def fred():
+    """Gate a test on FRED_API_KEY being present."""
+    if not _HAVE_FRED:
+        pytest.skip("FRED_API_KEY not set")
 
 
 @pytest.fixture

@@ -48,10 +48,11 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        # Deterministic, offline suite only. Live API tests (marker: slow) hit the
-        # real LS gateway and need credentials — run them on demand with
-        #   uv run pytest -m slow
-        entry: uv run pytest -m "not slow"
+        # Full suite, live tests included: the developer machine has .env, so the
+        # LS gateway / DART / KOFIA / telegram calls all resolve here. CI cannot —
+        # the runner has no credentials — so ci.yml gates on -m "not slow" instead.
+        # This is the only place the live tests run automatically.
+        entry: uv run pytest
         language: system
         pass_filenames: false
         stages: [pre-push]
