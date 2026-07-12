@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 import re
@@ -12,6 +13,7 @@ from shared.queries import watchlist as watchlist_q
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
+from bot.features.market_report import adr_from_rows, deviation_ratio, format_market_report
 from bot.features.mdd import max_drawdown
 from bot.features.watchlist_report import format_watchlist_report
 from lsapi import AsyncLSClient as LSClient
@@ -55,6 +57,9 @@ def _get_ls_client() -> LSClient:
 _KST = zoneinfo.ZoneInfo("Asia/Seoul")
 # JobQueue.run_daily days: 0=Sun … 6=Sat (telegram.ext.JobQueue._CRON_MAPPING)
 _WEEKDAYS = (1, 2, 3, 4, 5)
+
+# 시장 요약 대상 지수 (KOSPI=001, KOSDAQ=301)
+_INDICES = [("001", "코스피"), ("301", "코스닥")]
 
 
 def _is_kr_code(ticker: str) -> bool:
@@ -244,6 +249,56 @@ async def _fetch_lending_daily(shcode: str) -> dict | None:
         return None
 
 
+async def _call_retry_ratelimit(tr: str, payload: dict):
+    """LS TR 호출. 게이트웨이 초당 호출 제한(IGW00201)에 걸리면 한 번만 재시도한다."""
+    for attempt in range(2):
+        try:
+            return await _get_ls_client().call(tr, payload)
+        except Exception as e:
+            if attempt == 0 and "IGW00201" in str(e):
+                logging.warning(f"{tr} rate-limited (IGW00201); retrying in 3s")
+                await asyncio.sleep(3)
+                continue
+            raise
+
+
+async def _fetch_index_closes(upcode: str, count: int = 60) -> list[float]:
+    """t8429 — 업종 일봉. 지수 종가를 오래된 것부터 반환."""
+    resp = await _call_retry_ratelimit(
+        "t8429",
+        {
+            "t8429InBlock": {
+                "shcode": upcode,
+                "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월)
+                "qrycnt": count,
+                "sdate": "",
+                "edate": "99999999",
+                "cts_date": "",
+                "comp_yn": "N",
+            }
+        },
+    )
+    return [float(r["close"]) for r in (resp.block("t8429OutBlock1") or []) if r.get("close")]
+
+
+async def _fetch_adr(upcode: str, period: int) -> float | None:
+    """t1514 — 업종기간별추이를 받아 ADR(등락비율)을 계산."""
+    resp = await _call_retry_ratelimit(
+        "t1514",
+        {
+            "t1514InBlock": {
+                "upcode": upcode,
+                "gubun1": "",  # unused per spec
+                "gubun2": "1",  # daily bars (spec: 1=일, 2=주, 3=월)
+                "cts_date": "",
+                "cnt": period,
+                "rate_gbn": "",
+            }
+        },
+    )
+    return adr_from_rows(resp.block("t1514OutBlock1") or [], period)
+
+
 async def _resolve_name(code: str) -> str | None:
     """Best-effort stock name lookup for watchlist labelling. KR only."""
     if not _is_kr_code(code):
@@ -261,6 +316,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "BicQuant 봇이 실행 중이에요.\n\n"
         "/stock {티커}   — 주가 조회\n"
+        "/market         — 시장 요약 (지수 이격도 + ADR)\n"
         "/mdd {티커} {기간} — 최대낙폭(MDD) 조회\n"
         "/report         — 관심종목 리포트 즉시 조회\n"
         "/watch {코드}   — 관심종목 추가\n"
@@ -422,6 +478,56 @@ async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
+# ── 시장 요약 리포트 (지수 이격도 + ADR) ───────────────────────────────────────
+
+
+async def _build_market_entries() -> tuple[list[dict], list[dict]]:
+    """지수별 이격도 엔트리와 ADR 엔트리를 모은다. 데이터가 부족한 지수는 조용히 빠진다."""
+    index_entries: list[dict] = []
+    adr_entries: list[dict] = []
+
+    for upcode, name in _INDICES:
+        closes = await _fetch_index_closes(upcode)
+        ratio = deviation_ratio(closes)
+        if ratio is not None:
+            index_entries.append({"code": upcode, "name": name, "current": closes[-1], "ma50": sum(closes[-51:-1]) / 50, "ratio": ratio})
+
+    for upcode, name in _INDICES:
+        adr = await _fetch_adr(upcode, int(_cfg.adr.period))
+        if adr is not None:
+            adr_entries.append({"code": upcode, "name": name, "adr": adr})
+
+    return index_entries, adr_entries
+
+
+async def _send_market_report(bot, label: str | None) -> None:
+    """시장 요약을 그룹방에 발송. 보낼 데이터가 없으면 로그만 남기고 넘어간다."""
+    index_entries, adr_entries = await _build_market_entries()
+    msg = format_market_report(
+        index_entries,
+        adr_entries,
+        dev_threshold=float(_cfg.deviation.threshold),
+        adr_overbought=float(_cfg.adr.overbought),
+        adr_oversold=float(_cfg.adr.oversold),
+        label=label,
+    )
+    if msg is None:
+        logging.warning(f"market report ({label or '수동 조회'}): no data available")
+        return
+    await bot.send_message(chat_id=_cfg.telegram.chat_group_id, text=msg, parse_mode="HTML")
+
+
+async def market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """On-demand 시장 요약 (지수 이격도 + ADR), no label tag."""
+    if not _allowed(update):
+        return
+    try:
+        await _send_market_report(context.bot, None)
+    except Exception as e:
+        logging.error(f"[market] failed: {e}")
+        await update.message.reply_text(f"시장 요약 생성에 실패했어요: {e}")
+
+
 # ── 관심종목 일일 리포트 ────────────────────────────────────────────────────────
 
 
@@ -481,13 +587,29 @@ async def _send_watchlist_report(bot, label: str | None, *, include_credit: bool
 
 
 async def _job_market_open(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """장 시작 — 이격도 + MDD (신용/공매도/대차는 일별 데이터라 제외)."""
-    await _send_watchlist_report(context.bot, "장 시작", include_credit=False)
+    """장 시작 — 시장 요약과 관심종목 리포트를 각각 별도 메시지로 발송.
+
+    관심종목은 이격도 + MDD만 (신용/공매도/대차는 일별 결제 데이터라 장 마감에만).
+    한쪽이 실패해도 다른 쪽은 나가야 하므로 개별적으로 잡아 로그를 남긴다.
+    """
+    await _send_daily_reports(context.bot, "장 시작", include_credit=False)
 
 
 async def _job_market_close(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """장 마감 — 이격도 + MDD + 신용잔고/공매도/대차."""
-    await _send_watchlist_report(context.bot, "장 마감", include_credit=True)
+    """장 마감 — 시장 요약 + 관심종목 리포트(이격도 + MDD + 신용잔고/공매도/대차)."""
+    await _send_daily_reports(context.bot, "장 마감", include_credit=True)
+
+
+async def _send_daily_reports(bot, label: str, *, include_credit: bool) -> None:
+    try:
+        await _send_market_report(bot, label)
+    except Exception as e:
+        logging.error(f"[{label}] market report failed: {e}")
+
+    try:
+        await _send_watchlist_report(bot, label, include_credit=include_credit)
+    except Exception as e:
+        logging.error(f"[{label}] watchlist report failed: {e}")
 
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -534,15 +656,16 @@ def main() -> None:
     app.add_handler(CommandHandler("ask", ask))
     app.add_handler(CommandHandler("stock", stock))
     app.add_handler(CommandHandler("mdd", mdd))
+    app.add_handler(CommandHandler("market", market))
     app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("watch", watch))
     app.add_handler(CommandHandler("unwatch", unwatch))
     app.add_handler(CommandHandler("watchlist", watchlist))
     app.add_error_handler(error_handler)
 
-    # 관심종목 리포트 — 평일 장 시작 / 장 마감 (KST)
-    app.job_queue.run_daily(_job_market_open, time=_hhmm(_cfg.watchlist_report.open_time), days=_WEEKDAYS, name="watchlist_open")
-    app.job_queue.run_daily(_job_market_close, time=_hhmm(_cfg.watchlist_report.close_time), days=_WEEKDAYS, name="watchlist_close")
+    # 일일 리포트 (시장 요약 + 관심종목, 각각 별도 메시지) — 평일 장 시작 / 장 마감 (KST)
+    app.job_queue.run_daily(_job_market_open, time=_hhmm(_cfg.daily_report.open_time), days=_WEEKDAYS, name="daily_open")
+    app.job_queue.run_daily(_job_market_close, time=_hhmm(_cfg.daily_report.close_time), days=_WEEKDAYS, name="daily_close")
 
     app.run_polling(drop_pending_updates=True)
 

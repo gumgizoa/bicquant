@@ -1,15 +1,17 @@
 """Monitor service entry point.
 
-Runs three concurrent tasks, each under a supervisor:
+Runs two concurrent tasks, each under a supervisor:
   - sidecar: subscribes to JIF WebSocket for real-time sidecar/circuit-breaker events
-  - deviation: polls every DEVIATION_POLL_INTERVAL seconds for deviation ratio alerts
   - dart: polls DART for new listed-company disclosures
+
+시장 요약(지수 이격도 + ADR)과 관심종목 리포트는 bot 서비스가 담당한다 — 둘 다
+장 시작/마감에 나가는 정기 리포트라 bot의 JobQueue에 있다. monitor는 이벤트 감시만 한다.
 
 Each task is wrapped by ``_supervise`` so that an unhandled exception in one task
 restarts only that task (with exponential backoff) instead of tearing down the
 whole ``TaskGroup`` and exiting the process. Letting the process exit would have
-Docker's ``restart: unless-stopped`` policy relaunch the container, which
-re-fires the deviation startup summary at an arbitrary time of day.
+Docker's ``restart: unless-stopped`` policy relaunch the container, tearing down
+the WebSocket subscription and the DART dedup state along with it.
 """
 
 import asyncio
@@ -21,7 +23,6 @@ from shared import db
 
 from monitor import notifier
 from monitor.dart import monitor_dart_disclosures
-from monitor.deviation import monitor_deviation
 from monitor.sidecar import monitor_sidecar
 
 logging.basicConfig(
@@ -68,7 +69,6 @@ async def main() -> None:
     try:
         async with asyncio.TaskGroup() as tg:
             tg.create_task(_supervise("sidecar", monitor_sidecar), name="sidecar")
-            tg.create_task(_supervise("deviation", monitor_deviation), name="deviation")
             tg.create_task(_supervise("dart", monitor_dart_disclosures), name="dart")
     finally:
         await db.close()
