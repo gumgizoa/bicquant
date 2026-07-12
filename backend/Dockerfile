@@ -13,6 +13,8 @@ COPY lsapi/pyproject.toml ./lsapi/
 COPY lsapi/src/ ./lsapi/src/
 COPY dartapi/pyproject.toml ./dartapi/
 COPY dartapi/src/ ./dartapi/src/
+COPY kofiaapi/pyproject.toml ./kofiaapi/
+COPY kofiaapi/src/ ./kofiaapi/src/
 
 # Install production deps only
 RUN uv sync --frozen --no-dev
@@ -21,6 +23,7 @@ RUN uv sync --frozen --no-dev
 COPY backend/ ./backend/
 COPY lsapi/ ./lsapi/
 COPY dartapi/ ./dartapi/
+COPY kofiaapi/ ./kofiaapi/
 
 WORKDIR /workspace/backend
 
