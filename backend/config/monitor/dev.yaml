@@ -1,3 +1,1 @@
-deviation:
-  threshold: 130.0
-  poll_interval: 60  # 1 minute — fast feedback in dev
+# get_config는 <APP_ENV>.yaml 존재를 요구하므로 파일 자체는 유지한다.

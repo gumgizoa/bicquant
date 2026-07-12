@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["backend", "lsapi", "dartapi"]
+members = ["backend", "lsapi", "dartapi", "kofiaapi"]
 
 [tool.ruff]
 target-version = "py312"
@@ -16,8 +16,8 @@ select = ["E", "W", "F", "I"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "lsapi/tests", "backend/tests", "dartapi/tests"]
-pythonpath = ["backend", "lsapi/src", "dartapi/src"]
+testpaths = ["tests", "lsapi/tests", "backend/tests", "dartapi/tests", "kofiaapi/tests"]
+pythonpath = ["backend", "lsapi/src", "dartapi/src", "kofiaapi/src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

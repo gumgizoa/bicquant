@@ -1,43 +1,14 @@
-"""Integration tests for monitor data fetching against the live LS API.
+"""Integration tests for the LS market data behind the bot's 시장 요약 리포트.
 
 The ``slow`` tests use the shared ``ls_client`` fixture (real dev credentials);
-they are skipped when credentials are absent. The deviation-ratio math tests are
-pure and run offline.
+they are skipped when credentials are absent. 이격도/ADR 수식 자체는 순수 함수라
+``tests/bot/test_market_report.py``에서 오프라인으로 검증한다.
 
-Run all:          uv run pytest backend/tests/monitor/
-Run unit only:    uv run pytest backend/tests/monitor/ -m "not slow"
-Run integration:  uv run pytest backend/tests/monitor/ -m slow
+Run integration:  uv run pytest backend/tests/bot/ -m slow
 """
 
-import numpy as np
 import pytest
-
-# ---------------------------------------------------------------------------
-# Unit tests — deviation ratio calculation (no API calls)
-# ---------------------------------------------------------------------------
-
-
-def _compute_deviation(closes: list[float]) -> float:
-    """Mirror of the deviation-ratio logic in deviation.py._run_summary."""
-    current = closes[-1]
-    ma50 = float(np.mean(closes[-51:-1]))
-    return current / ma50 * 100
-
-
-def test_deviation_ratio_at_threshold():
-    closes = [100.0] * 50 + [130.0]
-    assert abs(_compute_deviation(closes) - 130.0) < 0.01
-
-
-def test_deviation_ratio_below_threshold():
-    closes = [100.0] * 50 + [120.0]
-    assert _compute_deviation(closes) < 130.0
-
-
-def test_deviation_ratio_above_threshold():
-    closes = [100.0] * 50 + [135.0]
-    assert _compute_deviation(closes) > 130.0
-
+from bot.features.market_report import deviation_ratio
 
 # ---------------------------------------------------------------------------
 # Integration tests — LS API data fetching
@@ -50,11 +21,11 @@ def test_deviation_ratio_above_threshold():
     [("001", 1000.0), ("301", 100.0)],  # KOSPI, KOSDAQ
 )
 async def test_fetch_index_daily_chart(ls_client, shcode: str, floor: float) -> None:
-    """t8419: index daily bars — shape and numeric closes."""
+    """t8429: index daily bars (업종차트) — shape and numeric closes."""
     resp = await ls_client.call(
-        "t8419",
+        "t8429",
         {
-            "t8419InBlock": {
+            "t8429InBlock": {
                 "shcode": shcode,
                 "gubun": "2",
                 "qrycnt": 60,
@@ -65,7 +36,7 @@ async def test_fetch_index_daily_chart(ls_client, shcode: str, floor: float) -> 
             }
         },
     )
-    bars = resp.body.get("t8419OutBlock1", [])
+    bars = resp.body.get("t8429OutBlock1", [])
     assert len(bars) >= 50, f"Expected >= 50 bars, got {len(bars)}"
     closes = [float(b["close"]) for b in bars if b.get("close")]
     assert all(c > 0 for c in closes)
@@ -113,9 +84,9 @@ async def test_fetch_current_index(ls_client, upcode: str) -> None:
 async def test_deviation_ratio_computable_from_live_data(ls_client) -> None:
     """End-to-end: fetch KOSPI bars and verify deviation ratio is computable."""
     resp = await ls_client.call(
-        "t8419",
+        "t8429",
         {
-            "t8419InBlock": {
+            "t8429InBlock": {
                 "shcode": "001",
                 "gubun": "2",
                 "qrycnt": 60,
@@ -126,11 +97,10 @@ async def test_deviation_ratio_computable_from_live_data(ls_client) -> None:
             }
         },
     )
-    bars = resp.body.get("t8419OutBlock1", [])
+    bars = resp.body.get("t8429OutBlock1", [])
     closes = [float(b["close"]) for b in bars if b.get("close")]
     assert len(closes) >= 51, "Need at least 51 data points to compute MA50"
 
-    current = closes[-1]
-    ma50 = float(np.mean(closes[-51:-1]))
-    ratio = current / ma50 * 100
+    ratio = deviation_ratio(closes)
+    assert ratio is not None
     assert 50 < ratio < 200, f"Deviation ratio {ratio:.1f} is out of plausible range"

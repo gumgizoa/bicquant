@@ -2,15 +2,15 @@
 
 ## 리포 구조
 
-uv 워크스페이스: `backend`, `lsapi`(LS증권 OpenAPI 클라이언트), `dartapi`(전자공시 DART 클라이언트).
+uv 워크스페이스: `backend`, `lsapi`(LS증권 OpenAPI 클라이언트), `dartapi`(전자공시 DART 클라이언트), `kofiaapi`(금융투자협회 FreeSIS 통계 클라이언트).
 
 `backend/`는 세 개의 독립 서비스 + 공통 코드로 구성된다.
 
 | 경로 | 역할 |
 | --- | --- |
 | `backend/app/` | FastAPI 서버 (routers, services) |
-| `backend/bot/` | 텔레그램 봇 (`python -m bot.main`), 기능은 `bot/features/` |
-| `backend/monitor/` | 시세 모니터링/알림 (`python -m monitor.main`) |
+| `backend/bot/` | 텔레그램 봇 (`python -m bot.main`), 기능은 `bot/features/`. 정기 리포트(장 시작/마감의 시장 요약·관심종목)도 봇의 JobQueue가 담당한다 |
+| `backend/monitor/` | 이벤트 감시/알림 (`python -m monitor.main`) — 사이드카·서킷브레이커(실시간 WS), DART 신규 공시 |
 | `backend/shared/` | 세 서비스 공통 코드 (config, db, models, queries) |
 
 docker-compose 서비스: frontend, backend, telegram-bot, monitor, postgres, migrate.
@@ -22,7 +22,7 @@ docker-compose 서비스: frontend, backend, telegram-bot, monitor, postgres, mi
 
 "2개 이상 서비스에서 쓰인다고 해서 반드시 shared로 분류되는 것은 아니다. 코드의 *성격*이 우선이며, 성격이 안 맞으면 여러 서비스가 쓰더라도 shared로 올리지 말고 **중복을 감수**한다.
 
-실제 사례 — MDD(최대낙폭) 계산은 `bot/features/mdd.py`의 `max_drawdown`과 `monitor/deviation.py`의 `_max_drawdown_pct`에 **의도적으로 중복** 존재한다. 두 서비스가 모두 쓰지만 shared에 둘 성격이 아니라고 판단했다.
+실제 사례 — 텔레그램 메시지 포맷/발송은 `monitor/notifier.py`와 `bot/features/*_report.py` + `bot.main`에 **의도적으로 중복** 존재한다. 두 서비스가 모두 텔레그램으로 보내지만, 알림 문구는 각 서비스의 도메인에 밀착된 코드라 shared로 올리지 않는다.
 
 - 서비스 전용 기능은 그 서비스 안에 둔다 (예: 봇 전용 기능 → `bot/features/<name>.py`).
 - feature 모듈은 순수 도메인 로직만 담는다. 데이터 페치나 텔레그램 핸들러 같은 서비스 글루는 `bot/main.py`에 둔다 (feature에 client를 주입하는 식의 억지 결합 금지).
