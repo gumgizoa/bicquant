@@ -55,6 +55,13 @@ def test_header_uses_label() -> None:
     assert "장 마감" not in msg
 
 
+def test_header_has_no_tag_without_label() -> None:
+    # /report (수동 조회) — 헤더에 괄호 태그가 붙지 않는다
+    msg = _fmt([_KR])
+    assert msg.startswith("📋 <b>관심종목 리포트</b>")
+    assert "(" not in msg.splitlines()[0]
+
+
 def test_full_kr_entry_renders_all_sections() -> None:
     msg = _fmt([_KR])
     assert "삼성전자 (005930)" in msg

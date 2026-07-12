@@ -60,13 +60,18 @@ def format_watchlist_report(
     *,
     dev_threshold: float,
     mdd_alert: float,
-    label: str = "장 마감",
+    label: str | None = None,
 ) -> str:
-    """관심종목 리포트를 HTML 텔레그램 메시지로 렌더링."""
-    if not entries:
-        return f"📋 <b>관심종목 리포트 ({label})</b>\n\n관심종목이 없어요. /watch {{코드}} 로 추가해보세요."
+    """관심종목 리포트를 HTML 텔레그램 메시지로 렌더링.
 
-    blocks = [f"📋 <b>관심종목 리포트 ({label})</b>"]
+    ``label``이 있으면 헤더에 태그로 붙는다 (예: '장 마감'). 수동 조회처럼 맥락이
+    필요 없으면 생략한다.
+    """
+    header = f"📋 <b>관심종목 리포트 ({label})</b>" if label else "📋 <b>관심종목 리포트</b>"
+    if not entries:
+        return f"{header}\n\n관심종목이 없어요. /watch {{코드}} 로 추가해보세요."
+
+    blocks = [header]
     for e in entries:
         blocks.append("\n".join(_stock_lines(e, dev_threshold, mdd_alert)))
     return "\n\n".join(blocks)

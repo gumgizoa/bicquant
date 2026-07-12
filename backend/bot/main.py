@@ -469,7 +469,7 @@ async def _build_watchlist_entries(include_credit: bool) -> list[dict]:
     return entries
 
 
-async def _send_watchlist_report(bot, label: str, *, include_credit: bool) -> None:
+async def _send_watchlist_report(bot, label: str | None, *, include_credit: bool) -> None:
     entries = await _build_watchlist_entries(include_credit)
     msg = format_watchlist_report(
         entries,
@@ -491,12 +491,11 @@ async def _job_market_close(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """On-demand run of the 장 마감 report (full, incl. 신용/공매도/대차)."""
+    """On-demand full report (이격도 + MDD + 신용/공매도/대차), no label tag."""
     if not _allowed(update):
         return
-    await update.message.reply_text("관심종목 리포트를 만드는 중이에요…")
     try:
-        await _send_watchlist_report(context.bot, "수동 조회", include_credit=True)
+        await _send_watchlist_report(context.bot, None, include_credit=True)
     except Exception as e:
         logging.error(f"[report] failed: {e}")
         await update.message.reply_text(f"리포트 생성에 실패했어요: {e}")
