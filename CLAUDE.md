@@ -2,7 +2,7 @@
 
 ## 리포 구조
 
-uv 워크스페이스: `backend`, `lsapi`(LS증권 OpenAPI 클라이언트), `dartapi`(전자공시 DART 클라이언트).
+uv 워크스페이스: `backend`, `lsapi`(LS증권 OpenAPI 클라이언트), `dartapi`(전자공시 DART 클라이언트), `kofiaapi`(금융투자협회 FreeSIS 통계 클라이언트).
 
 `backend/`는 세 개의 독립 서비스 + 공통 코드로 구성된다.
 
