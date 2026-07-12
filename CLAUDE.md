@@ -39,12 +39,14 @@ docker-compose 서비스: frontend, backend, telegram-bot, monitor, postgres, mi
 ## 테스트와 린트
 
 ```bash
-uv run pytest -m "not slow"   # 오프라인 스위트 (pre-push 게이트와 동일)
-uv run pytest -m slow         # 라이브 테스트 (실 서비스 + 자격증명 필요)
+uv run pytest                 # 전체 스위트 (pre-push 게이트와 동일, 라이브 포함)
+uv run pytest -m "not slow"   # 오프라인 스위트 (CI 게이트와 동일)
+uv run pytest -m slow         # 라이브 테스트만 (실 서비스 + 자격증명 필요)
 PYTHONPATH=backend uv run python ...   # ad-hoc 스크립트 실행 시
 ```
 
-- 라이브 테스트(LS API / DB / 텔레그램)는 `@pytest.mark.slow`로 마킹한다. pre-push 게이트가 빠르고 오프라인이어야 하기 때문이다.
+- 라이브 테스트(LS API / DART / KOFIA / DB / 텔레그램)는 `@pytest.mark.slow`로 마킹한다. **pre-push는 전체를 돌리고**(로컬엔 `.env`가 있다), **CI는 `-m "not slow"`만 돌린다**(러너엔 자격증명이 없다). 즉 라이브가 자동으로 검증되는 지점은 pre-push 하나뿐이므로, `--no-verify`로 우회하면 라이브 커버리지가 통째로 사라진다.
+- pre-push에서 라이브가 도는 대가로, push할 때마다 텔레그램 dev 챗에 리포트가 발송되고 실 DB에 테스트 행이 쓰인다. 외부 API 장애 시 코드가 멀쩡해도 push가 막힐 수 있다.
 - 순수 로직 테스트는 외부 설정 없이 import/실행돼야 한다. `bot.main`은 import 시점에 Azure LLM·텔레그램 config를 초기화하므로, 파일 상단에서 import하지 말고 라이브 테스트 함수 안에서 **지연 import**한다.
 - 라이브 테스트는 `conftest.py`의 픽스처(`ls_client`, `live_db`, `dart`, `telegram`)로 서비스 가용성을 게이트하고, 없으면 `pytest.skip`.
 - 새 기능은 순수 함수 단위 테스트 + 라이브(slow) 테스트를 함께 추가한다.
