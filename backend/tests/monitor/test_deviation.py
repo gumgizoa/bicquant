@@ -13,13 +13,10 @@ import pytest
 from monitor.deviation import (
     _fetch_adr,
     _fetch_index_closes,
-    _fetch_stock_closes,
-    _fetch_stock_name,
-    _max_drawdown_pct,
     _run_summary,
     monitor_deviation,
 )
-from monitor.notifier import format_adr_summary, format_deviation_summary, format_mdd_summary
+from monitor.notifier import format_adr_summary, format_deviation_summary
 
 # ---------------------------------------------------------------------------
 # Live: LS API data fetching
@@ -32,19 +29,6 @@ async def test_fetch_index_closes_live(ls_client, upcode: str) -> None:
     closes = await _fetch_index_closes(ls_client, upcode)
     assert len(closes) >= 51, f"need >=51 bars to compute MA50, got {len(closes)}"
     assert all(c > 0 for c in closes)
-
-
-@pytest.mark.slow
-async def test_fetch_stock_closes_live(ls_client) -> None:
-    closes = await _fetch_stock_closes(ls_client, "005930")
-    assert len(closes) >= 51
-    assert all(c > 0 for c in closes)
-
-
-@pytest.mark.slow
-async def test_fetch_stock_name_live(ls_client) -> None:
-    name = await _fetch_stock_name(ls_client, "005930")
-    assert name == "삼성전자"
 
 
 @pytest.mark.slow
@@ -99,15 +83,14 @@ async def test_fetch_adr_returns_none_when_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live: _run_summary — real LS + watchlist (DB) + Telegram
+# Live: _run_summary — real LS + Telegram (no DB: watchlist moved to the bot)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
-async def test_run_eod_summary_live(ls_client, live_db, telegram) -> None:
-    # Sends a real summary message for the two indices (+ any active watchlist
-    # stocks) to the dev chat. Asserts the whole pipeline completes.
-    # live_db must be requested so watchlist_q.get_active_codes() has an engine.
+async def test_run_eod_summary_live(ls_client, telegram) -> None:
+    # Sends the real 시장 summary (지수 이격도 + ADR) to the dev chat and asserts
+    # the whole pipeline completes.
     await _run_summary(ls_client, label="테스트 요약")
 
 
@@ -309,65 +292,5 @@ def test_format_adr_summary_neutral_not_flagged() -> None:
 
 def test_format_adr_summary_custom_label() -> None:
     msg = format_adr_summary([], overbought=120.0, oversold=75.0, label="장 시작")
-    assert "장 시작" in msg
-    assert "장 마감" not in msg
-
-
-# ---------------------------------------------------------------------------
-# _max_drawdown_pct — pure function
-# ---------------------------------------------------------------------------
-
-
-def test_max_drawdown_pct_simple_peak_to_trough() -> None:
-    assert _max_drawdown_pct([100.0, 60.0]) == pytest.approx(-40.0)
-
-
-def test_max_drawdown_pct_monotonic_increase_is_zero() -> None:
-    assert _max_drawdown_pct([10.0, 20.0, 30.0]) == 0.0
-
-
-def test_max_drawdown_pct_uses_running_peak_not_global() -> None:
-    # 100 -> 50 (-50%), recovers to 200 -> 120 (-40%); worst is -50%
-    assert _max_drawdown_pct([100.0, 50.0, 200.0, 120.0]) == pytest.approx(-50.0)
-
-
-def test_max_drawdown_pct_empty_is_zero() -> None:
-    assert _max_drawdown_pct([]) == 0.0
-
-
-# ---------------------------------------------------------------------------
-# format_mdd_summary — pure function
-# ---------------------------------------------------------------------------
-
-
-def test_format_mdd_summary_contains_header_with_period() -> None:
-    msg = format_mdd_summary([], alert_threshold=-20.0, period=60)
-    assert "MDD 일일 요약" in msg
-    assert "60 거래일" in msg
-
-
-def test_format_mdd_summary_flags_entry_at_or_below_threshold() -> None:
-    entries = [{"code": "005930", "name": "삼성전자", "mdd": -25.3}]
-    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
-    assert "⚠️" in msg
-    assert "<b>-25.3%</b>" in msg
-    assert "삼성전자" in msg
-
-
-def test_format_mdd_summary_no_flag_above_threshold() -> None:
-    entries = [{"code": "035720", "name": "카카오", "mdd": -12.1}]
-    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
-    assert "⚠️" not in msg
-    assert "-12.1%" in msg
-
-
-def test_format_mdd_summary_flags_at_exact_threshold() -> None:
-    entries = [{"code": "005930", "name": "삼성전자", "mdd": -20.0}]
-    msg = format_mdd_summary(entries, alert_threshold=-20.0, period=60)
-    assert "⚠️" in msg
-
-
-def test_format_mdd_summary_custom_label() -> None:
-    msg = format_mdd_summary([], alert_threshold=-20.0, period=60, label="장 시작")
     assert "장 시작" in msg
     assert "장 마감" not in msg

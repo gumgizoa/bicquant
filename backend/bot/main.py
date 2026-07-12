@@ -1,5 +1,7 @@
+import datetime
 import logging
 import re
+import zoneinfo
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
@@ -11,6 +13,7 @@ from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
 from bot.features.mdd import max_drawdown
+from bot.features.watchlist_report import format_watchlist_report
 from lsapi import AsyncLSClient as LSClient
 
 load_dotenv()
@@ -47,6 +50,11 @@ def _get_ls_client() -> LSClient:
             app_secret=_cfg.ls_api.app_secret,
         )
     return _ls_client
+
+
+_KST = zoneinfo.ZoneInfo("Asia/Seoul")
+# JobQueue.run_daily days: 0=Sun … 6=Sat (telegram.ext.JobQueue._CRON_MAPPING)
+_WEEKDAYS = (1, 2, 3, 4, 5)
 
 
 def _is_kr_code(ticker: str) -> bool:
@@ -190,6 +198,52 @@ async def _fetch_us_daily_closes(symbol: str, count: int) -> list[tuple[str, flo
     raise ValueError(f"'{symbol}' 데이터를 가져올 수 없습니다.")
 
 
+def _recent_range(days: int = 30) -> tuple[str, str]:
+    """(sdate, edate) as YYYYMMDD covering the last `days` calendar days (KST)."""
+    today = datetime.datetime.now(_KST).date()
+    return (today - datetime.timedelta(days=days)).strftime("%Y%m%d"), today.strftime("%Y%m%d")
+
+
+async def _fetch_credit_info(shcode: str) -> dict | None:
+    """t1926 — 종목별신용정보 (융자/대주 잔고). KR only; None on failure."""
+    try:
+        resp = await _get_ls_client().call("t1926", {"t1926InBlock": {"shcode": shcode}})
+        return resp.block("t1926OutBlock") or None
+    except Exception as e:
+        logging.warning(f"t1926 (credit) failed for {shcode}: {e}")
+        return None
+
+
+async def _fetch_short_daily(shcode: str) -> dict | None:
+    """t1927 — 공매도일별추이. Latest row (rows are newest-first). KR only."""
+    sdate, edate = _recent_range()
+    try:
+        resp = await _get_ls_client().call(
+            "t1927",
+            {"t1927InBlock": {"shcode": shcode, "date": "", "sdate": sdate, "edate": edate}},
+        )
+        rows = resp.block("t1927OutBlock1") or []
+        return rows[0] if rows else None
+    except Exception as e:
+        logging.warning(f"t1927 (short) failed for {shcode}: {e}")
+        return None
+
+
+async def _fetch_lending_daily(shcode: str) -> dict | None:
+    """t1941 — 종목별대차거래일간추이. Latest row (newest-first). KR only."""
+    sdate, edate = _recent_range()
+    try:
+        resp = await _get_ls_client().call(
+            "t1941",
+            {"t1941InBlock": {"shcode": shcode, "sdate": sdate, "edate": edate}},
+        )
+        rows = resp.block("t1941OutBlock1") or []
+        return rows[0] if rows else None
+    except Exception as e:
+        logging.warning(f"t1941 (lending) failed for {shcode}: {e}")
+        return None
+
+
 async def _resolve_name(code: str) -> str | None:
     """Best-effort stock name lookup for watchlist labelling. KR only."""
     if not _is_kr_code(code):
@@ -208,6 +262,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "BicQuant 봇이 실행 중이에요.\n\n"
         "/stock {티커}   — 주가 조회\n"
         "/mdd {티커} {기간} — 최대낙폭(MDD) 조회\n"
+        "/report         — 관심종목 리포트 즉시 조회\n"
         "/watch {코드}   — 관심종목 추가\n"
         "/unwatch {코드} — 관심종목 삭제\n"
         "/watchlist      — 관심종목 목록\n"
@@ -367,6 +422,86 @@ async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
+# ── 관심종목 일일 리포트 ────────────────────────────────────────────────────────
+
+
+async def _build_watchlist_entries(include_credit: bool) -> list[dict]:
+    """Collect per-stock metrics for every active watchlist code.
+
+    KR stocks get 이격도 + MDD (+ 신용/공매도/대차 when ``include_credit``).
+    US stocks only get MDD — g3103 returns too few bars for MA50, and the credit
+    /short/lending TRs are KR-only.
+    """
+    mdd_period = int(_cfg.mdd.period)
+    entries: list[dict] = []
+
+    for code in await watchlist_q.get_active_codes():
+        is_kr = _is_kr_code(code)
+        entry: dict = {"code": code, "name": code, "is_kr": is_kr}
+
+        try:
+            if is_kr:
+                entry["name"] = await _resolve_name(code) or code
+                series = await _fetch_kr_daily_closes(code, max(60, mdd_period))
+            else:
+                series = await _fetch_us_daily_closes(code, mdd_period)
+        except Exception as e:
+            logging.warning(f"watchlist report: price fetch failed for {code}: {e}")
+            series = []
+
+        closes = [c for _, c in series]
+        if len(closes) >= 51:
+            ma50 = sum(closes[-51:-1]) / 50
+            if ma50 > 0:
+                entry["ratio"] = closes[-1] / ma50 * 100
+        if len(closes) >= 2:
+            window = closes[-mdd_period:]
+            entry["mdd"] = max_drawdown(window).mdd_pct
+            entry["mdd_days"] = len(window)
+
+        if include_credit and is_kr:
+            entry["credit"] = await _fetch_credit_info(code)
+            entry["short"] = await _fetch_short_daily(code)
+            entry["lending"] = await _fetch_lending_daily(code)
+
+        entries.append(entry)
+
+    return entries
+
+
+async def _send_watchlist_report(bot, label: str, *, include_credit: bool) -> None:
+    entries = await _build_watchlist_entries(include_credit)
+    msg = format_watchlist_report(
+        entries,
+        dev_threshold=float(_cfg.deviation.threshold),
+        mdd_alert=float(_cfg.mdd.alert_threshold),
+        label=label,
+    )
+    await bot.send_message(chat_id=_cfg.telegram.chat_group_id, text=msg, parse_mode="HTML")
+
+
+async def _job_market_open(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """장 시작 — 이격도 + MDD (신용/공매도/대차는 일별 데이터라 제외)."""
+    await _send_watchlist_report(context.bot, "장 시작", include_credit=False)
+
+
+async def _job_market_close(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """장 마감 — 이격도 + MDD + 신용잔고/공매도/대차."""
+    await _send_watchlist_report(context.bot, "장 마감", include_credit=True)
+
+
+async def report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """On-demand run of the 장 마감 report (full, incl. 신용/공매도/대차)."""
+    if not _allowed(update):
+        return
+    await update.message.reply_text("관심종목 리포트를 만드는 중이에요…")
+    try:
+        await _send_watchlist_report(context.bot, "수동 조회", include_credit=True)
+    except Exception as e:
+        logging.error(f"[report] failed: {e}")
+        await update.message.reply_text(f"리포트 생성에 실패했어요: {e}")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     from telegram.error import Conflict
 
@@ -387,6 +522,12 @@ async def _post_shutdown(app: Application) -> None:
     await db.close()
 
 
+def _hhmm(value: str) -> datetime.time:
+    """'09:00' → time(9, 0, tzinfo=KST)."""
+    hour, minute = str(value).split(":")
+    return datetime.time(int(hour), int(minute), tzinfo=_KST)
+
+
 def main() -> None:
     token = _cfg.telegram.bot_token
     app = ApplicationBuilder().token(token).post_init(_post_init).post_shutdown(_post_shutdown).build()
@@ -394,10 +535,16 @@ def main() -> None:
     app.add_handler(CommandHandler("ask", ask))
     app.add_handler(CommandHandler("stock", stock))
     app.add_handler(CommandHandler("mdd", mdd))
+    app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("watch", watch))
     app.add_handler(CommandHandler("unwatch", unwatch))
     app.add_handler(CommandHandler("watchlist", watchlist))
     app.add_error_handler(error_handler)
+
+    # 관심종목 리포트 — 평일 장 시작 / 장 마감 (KST)
+    app.job_queue.run_daily(_job_market_open, time=_hhmm(_cfg.watchlist_report.open_time), days=_WEEKDAYS, name="watchlist_open")
+    app.job_queue.run_daily(_job_market_close, time=_hhmm(_cfg.watchlist_report.close_time), days=_WEEKDAYS, name="watchlist_close")
+
     app.run_polling(drop_pending_updates=True)
 
 
