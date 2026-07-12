@@ -58,7 +58,7 @@ async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) ->
         except Exception as e:
             last_exc = e
             if attempt == 0 and "IGW00201" in str(e):
-                log.warning("t8419 rate-limited for %s (IGW00201); retrying in 3s", upcode)
+                log.warning("t8429 rate-limited for %s (IGW00201); retrying in 3s", upcode)
                 await asyncio.sleep(3)
             else:
                 raise
@@ -66,23 +66,34 @@ async def _fetch_index_closes(client: LSClient, upcode: str, count: int = 60) ->
 
 
 async def _fetch_stock_closes(client: LSClient, shcode: str, count: int = 60) -> list[float]:
-    resp = await client.call(
-        "t8451",
-        {
-            "t8451InBlock": {
-                "shcode": shcode,
-                "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월, 5=년)
-                "qrycnt": count,
-                "sdate": "",
-                "edate": "99999999",
-                "cts_date": "",
-                "comp_yn": "N",
-                "sujung": "1",  # adjusted price
-                "exchgubun": "K",
-            }
-        },
-    )
-    return [float(r["close"]) for r in (resp.block("t8451OutBlock1") or []) if r.get("close")]
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            resp = await client.call(
+                "t8451",
+                {
+                    "t8451InBlock": {
+                        "shcode": shcode,
+                        "gubun": "2",  # daily bars (spec: 2=일, 3=주, 4=월, 5=년)
+                        "qrycnt": count,
+                        "sdate": "",
+                        "edate": "99999999",
+                        "cts_date": "",
+                        "comp_yn": "N",
+                        "sujung": "1",  # adjusted price
+                        "exchgubun": "K",
+                    }
+                },
+            )
+            return [float(r["close"]) for r in (resp.block("t8451OutBlock1") or []) if r.get("close")]
+        except Exception as e:
+            last_exc = e
+            if attempt == 0 and "IGW00201" in str(e):
+                log.warning("t8451 rate-limited for %s (IGW00201); retrying in 3s", shcode)
+                await asyncio.sleep(3)
+            else:
+                raise
+    raise last_exc  # type: ignore[misc]
 
 
 async def _fetch_stock_name(client: LSClient, shcode: str) -> str:
