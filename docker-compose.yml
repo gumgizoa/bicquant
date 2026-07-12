@@ -70,6 +70,7 @@ services:
       AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION}
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
       AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT}
+      FRED_API_KEY: ${FRED_API_KEY}
     depends_on:
       migrate:
         condition: service_completed_successfully

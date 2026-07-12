@@ -14,6 +14,9 @@ ls_api:
   app_secret: ${oc.env:LS_OPENAPI_APP_SECRET}
   user_id: ${oc.env:LS_OPENAPI_USER_ID,""}
 
+fred:
+  api_key: ${oc.env:FRED_API_KEY}
+
 azure_openai:
   api_key: ${oc.env:AZURE_OPENAI_API_KEY}
   api_version: ${oc.env:AZURE_OPENAI_API_VERSION}

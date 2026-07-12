@@ -5,6 +5,7 @@ import re
 import zoneinfo
 
 from dotenv import load_dotenv
+from fredapi import Fred
 from langchain_core.messages import HumanMessage
 from langchain_openai.chat_models import AzureChatOpenAI
 from shared import db
@@ -13,6 +14,7 @@ from shared.queries import watchlist as watchlist_q
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
+from bot.features.macro_report import MacroPoint, format_macro_report
 from bot.features.market_report import adr_from_rows, deviation_ratio, format_market_report
 from bot.features.mdd import max_drawdown
 from bot.features.watchlist_report import format_watchlist_report
@@ -65,7 +67,13 @@ _INDICES = [("001", "코스피"), ("301", "코스닥")]
 # KOFIA 신용공여 잔고 조회 구간 (일). 연휴를 감안해 최근 2영업일 행을 확보할 만큼 넉넉히.
 _CREDIT_LOOKBACK_DAYS = 14
 
+# FRED 조회 구간 (일). 일별 계열은 최근 2관측치만 있으면 되고, 월별 계열은 YoY까지 보려면
+# 13개월치가 필요하다 (발표 지연 + 결측을 감안해 넉넉히 잡는다).
+_FRED_DAILY_LOOKBACK_DAYS = 30
+_FRED_MONTHLY_LOOKBACK_DAYS = 600
+
 _kofia_client = KofiaClient()
+_fred_client = Fred(api_key=_cfg.fred.api_key)
 
 
 def _is_kr_code(ticker: str) -> bool:
@@ -323,6 +331,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "BicQuant 봇이 실행 중이에요.\n\n"
         "/stock {티커}   — 주가 조회\n"
         "/market         — 시장 요약 (이격도 + ADR + 신용공여 잔고)\n"
+        "/macro          — 해외 거시 지표 (미 국채 10년물 + 미국 M2)\n"
         "/mdd {티커} {기간} — 최대낙폭(MDD) 조회\n"
         "/report         — 관심종목 리포트 즉시 조회\n"
         "/watch {코드}   — 관심종목 추가\n"
@@ -560,6 +569,71 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"시장 요약 생성에 실패했어요: {e}")
 
 
+# ── 해외 거시 지표 리포트 (미 국채 10년물 + 미국 M2) ───────────────────────────
+
+
+def _fred_point(series_id: str, *, monthly: bool) -> MacroPoint | None:
+    """FRED 시계열의 최신 관측치를 ``MacroPoint``로. 데이터가 없으면 ``None``.
+
+    DGS10은 휴장일에 NaN 행이 들어오므로 결측을 먼저 털어낸다. 월별 계열은 연속적이라
+    12칸 앞(``[-13]``)이 곧 1년 전 값이다 — 없으면 YoY 없이 나간다.
+    """
+    lookback = _FRED_MONTHLY_LOOKBACK_DAYS if monthly else _FRED_DAILY_LOOKBACK_DAYS
+    start = datetime.datetime.now(_KST).date() - datetime.timedelta(days=lookback)
+    series = _fred_client.get_series(series_id, observation_start=start).dropna()
+    if series.empty:
+        return None
+    return MacroPoint(
+        date=series.index[-1].date(),
+        value=float(series.iloc[-1]),
+        prev=float(series.iloc[-2]) if len(series) > 1 else None,
+        year_ago=float(series.iloc[-13]) if monthly and len(series) >= 13 else None,
+    )
+
+
+async def _fetch_macro_point(series_id: str, *, monthly: bool) -> MacroPoint | None:
+    """FRED 관측치 하나. 실패하면 로그만 남기고 ``None`` — 다른 지표는 계속 나가야 한다.
+
+    fredapi는 requests 기반 동기 클라이언트라 이벤트 루프를 막지 않게 스레드로 넘긴다.
+    """
+    try:
+        return await asyncio.to_thread(_fred_point, series_id, monthly=monthly)
+    except Exception as e:
+        logging.warning(f"FRED fetch failed for {series_id}: {e}")
+        return None
+
+
+async def _send_macro_report(bot, label: str | None) -> None:
+    """해외 거시 지표를 그룹방에 발송. 보낼 데이터가 없으면 로그만 남기고 넘어간다.
+
+    M2는 월별이라 장 시작/마감 사이에 값이 변하지 않지만, 기준월과 MoM/YoY를 함께 보여주므로
+    두 리포트에 모두 싣는다 (신용공여 잔고와 달리 ``include_credit`` 같은 분기가 없다).
+    """
+    treasury = await _fetch_macro_point(_cfg.macro.treasury_series, monthly=False)
+    m2_us = await _fetch_macro_point(_cfg.macro.m2_us_series, monthly=True)
+    msg = format_macro_report(
+        treasury,
+        m2_us,
+        treasury_move_alert=float(_cfg.macro.treasury_move_alert),
+        label=label,
+    )
+    if msg is None:
+        logging.warning(f"macro report ({label or '수동 조회'}): no data available")
+        return
+    await bot.send_message(chat_id=_cfg.telegram.chat_group_id, text=msg, parse_mode="HTML")
+
+
+async def macro(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """On-demand 해외 거시 지표 (미 국채 10년물 + 미국 M2), no label tag."""
+    if not _allowed(update):
+        return
+    try:
+        await _send_macro_report(context.bot, None)
+    except Exception as e:
+        logging.error(f"[macro] failed: {e}")
+        await update.message.reply_text(f"거시 지표 조회에 실패했어요: {e}")
+
+
 # ── 관심종목 일일 리포트 ────────────────────────────────────────────────────────
 
 
@@ -619,17 +693,17 @@ async def _send_watchlist_report(bot, label: str | None, *, include_credit: bool
 
 
 async def _job_market_open(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """장 시작 — 시장 요약과 관심종목 리포트를 각각 별도 메시지로 발송.
+    """장 시작 — 시장 요약 / 해외 거시 지표 / 관심종목 리포트를 각각 별도 메시지로 발송.
 
     신용 관련 지표는 모두 빠진다: 시장 신용공여 잔고(KOFIA)도, 관심종목의 신용/공매도/대차도
     일별 결제 기준이라 장중에 변하지 않는다. 장 마감 리포트에만 붙인다.
-    한쪽이 실패해도 다른 쪽은 나가야 하므로 개별적으로 잡아 로그를 남긴다.
+    하나가 실패해도 나머지는 나가야 하므로 개별적으로 잡아 로그를 남긴다.
     """
     await _send_daily_reports(context.bot, "장 시작", include_credit=False)
 
 
 async def _job_market_close(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """장 마감 — 시장 요약(+ 시장 신용공여 잔고) + 관심종목 리포트(+ 신용/공매도/대차)."""
+    """장 마감 — 시장 요약(+ 시장 신용공여 잔고) / 해외 거시 지표 / 관심종목(+ 신용/공매도/대차)."""
     await _send_daily_reports(context.bot, "장 마감", include_credit=True)
 
 
@@ -638,6 +712,11 @@ async def _send_daily_reports(bot, label: str, *, include_credit: bool) -> None:
         await _send_market_report(bot, label, include_credit=include_credit)
     except Exception as e:
         logging.error(f"[{label}] market report failed: {e}")
+
+    try:
+        await _send_macro_report(bot, label)
+    except Exception as e:
+        logging.error(f"[{label}] macro report failed: {e}")
 
     try:
         await _send_watchlist_report(bot, label, include_credit=include_credit)
@@ -690,6 +769,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stock", stock))
     app.add_handler(CommandHandler("mdd", mdd))
     app.add_handler(CommandHandler("market", market))
+    app.add_handler(CommandHandler("macro", macro))
     app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("watch", watch))
     app.add_handler(CommandHandler("unwatch", unwatch))
